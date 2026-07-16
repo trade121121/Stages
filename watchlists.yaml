@@ -1,0 +1,31 @@
+# Eigene Listen laufen durch dieselbe Scanner-Logik, erscheinen aber im
+# Watchlist-Tab mit Dual-MRS (lokaler Index + Themen-Benchmark).
+watchlists:
+  - name: AI-Infra
+    local_benchmark: "^GSPC"
+    theme_benchmark: "SOXX"
+    tickers: [WULF, HUT, APLD, HIVE, FCEL, BE, GEV, VRT, IREN, CIFR]
+
+  - name: Memory
+    local_benchmark: "^GSPC"
+    theme_benchmark: "SMH"
+    tickers: [MU, SNDK, WDC, STX, SKHY]
+
+  - name: Software-Truemmer
+    local_benchmark: "^GSPC"
+    theme_benchmark: "IGV"
+    tickers: [PATH, TTD, TEAM, MDB, OKTA, DOCU, ZM, TWLO]
+
+  # HK-Listings: MRS gegen HSI (Landes-Beta) und gegen 2807.HK
+  # (Global X China Robotics ETF = Sektor-Referenz aus dem Benchmarking)
+  - name: China-Robotics-HK
+    local_benchmark: "^HSI"
+    theme_benchmark: "2807.HK"
+    tickers: ["9880.HK", "9660.HK", "2432.HK", "2590.HK", "2498.HK",
+              "2252.HK", "2533.HK", "1810.HK"]
+
+  # US-gelistete China-/Robotics-Namen: lokal gegen SPX, Thema gegen BOTZ
+  - name: China-Robotics-ADR
+    local_benchmark: "^GSPC"
+    theme_benchmark: "BOTZ"
+    tickers: [KOID, HSAI, EH, XPEV]

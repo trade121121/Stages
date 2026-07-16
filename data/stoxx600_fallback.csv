@@ -1,0 +1,81 @@
+ticker,name
+ASML.AS,ASML Holding
+SAP.DE,SAP
+NESN.SW,Nestle
+NOVN.SW,Novartis
+ROG.SW,Roche
+MC.PA,LVMH
+OR.PA,L'Oreal
+TTE.PA,TotalEnergies
+SIE.DE,Siemens
+ALV.DE,Allianz
+DTE.DE,Deutsche Telekom
+AIR.PA,Airbus
+SU.PA,Schneider Electric
+SAN.PA,Sanofi
+AZN.L,AstraZeneca
+SHEL.L,Shell
+HSBA.L,HSBC
+ULVR.L,Unilever
+RIO.L,Rio Tinto
+GSK.L,GSK
+NOVO-B.CO,Novo Nordisk
+SIKA.SW,Sika
+ABBN.SW,ABB
+UBSG.SW,UBS
+ZURN.SW,Zurich Insurance
+CFR.SW,Richemont
+IBE.MC,Iberdrola
+SAN.MC,Banco Santander
+ITX.MC,Inditex
+ENEL.MI,Enel
+ISP.MI,Intesa Sanpaolo
+UCG.MI,UniCredit
+STLAM.MI,Stellantis
+ADYEN.AS,Adyen
+INGA.AS,ING
+PRX.AS,Prosus
+BAS.DE,BASF
+BAYN.DE,Bayer
+BMW.DE,BMW
+MBG.DE,Mercedes-Benz
+VOW3.DE,Volkswagen
+IFX.DE,Infineon
+MUV2.DE,Munich Re
+RHM.DE,Rheinmetall
+DBK.DE,Deutsche Bank
+EOAN.DE,E.ON
+RWE.DE,RWE
+CS.PA,AXA
+BNP.PA,BNP Paribas
+KER.PA,Kering
+RMS.PA,Hermes
+SGO.PA,Saint-Gobain
+DG.PA,Vinci
+EL.PA,EssilorLuxottica
+SAF.PA,Safran
+CAP.PA,Capgemini
+ERIC-B.ST,Ericsson
+VOLV-B.ST,Volvo
+ATCO-A.ST,Atlas Copco
+INVE-B.ST,Investor AB
+EQNR.OL,Equinor
+DNB.OL,DNB
+NDA-FI.HE,Nordea
+NOKIA.HE,Nokia
+MAERSK-B.CO,Maersk
+DSV.CO,DSV
+VWS.CO,Vestas
+BARC.L,Barclays
+LLOY.L,Lloyds
+BP.L,BP
+REL.L,RELX
+LSEG.L,LSE Group
+NG.L,National Grid
+VOD.L,Vodafone
+BA.L,BAE Systems
+RR.L,Rolls-Royce
+CRH.L,CRH
+FLTR.L,Flutter
+GLEN.L,Glencore
+PRU.L,Prudential

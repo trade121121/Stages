@@ -1,0 +1,81 @@
+"""Central configuration for the Weinstein weekly screener."""
+
+# ---------------------------------------------------------------------------
+# Benchmarks (yfinance symbols)
+# ---------------------------------------------------------------------------
+BENCH_US = "^GSPC"        # S&P 500
+BENCH_EU = "^STOXX"       # STOXX Europe 600
+BENCH_HK = "^HSI"         # Hang Seng
+
+# ---------------------------------------------------------------------------
+# Sector / theme rotation view: everything is measured against BENCH_US
+# ---------------------------------------------------------------------------
+SECTOR_ETFS = {
+    # GICS sectors
+    "XLK": "Technology", "XLE": "Energy", "XLF": "Financials",
+    "XLV": "Health Care", "XLI": "Industrials", "XLY": "Cons. Discretionary",
+    "XLP": "Cons. Staples", "XLU": "Utilities", "XLB": "Materials",
+    "XLRE": "Real Estate", "XLC": "Communication",
+    # Themes
+    "IGV": "Software", "BOTZ": "Robotics/AI", "SOXX": "Semis",
+    "SMH": "Semis (SMH)", "URA": "Uranium", "GDX": "Gold Miners",
+    "XME": "Metals & Mining", "ITA": "Defense", "KWEB": "China Internet",
+    "^HSI": "Hang Seng (Index)",
+}
+
+# ---------------------------------------------------------------------------
+# Indicator parameters (all on WEEKLY bars)
+# ---------------------------------------------------------------------------
+MA_WEEKS = 30                 # Weinstein 30-week SMA
+MRS_WEEKS = 52                # Mansfield RS normalisation window
+SLOPE_LOOKBACK = 6            # SMA slope measured vs. 6 weeks ago
+VOL_AVG_WEEKS = 10            # volume baseline
+BREAKOUT_WINDOW = 26          # new 26-week closing high/low
+MRS_FRESH_CROSS_WEEKS = 8     # "fresh" zero-line cross window
+
+# ---------------------------------------------------------------------------
+# Long scanner (Stage 1 -> 2)
+# ---------------------------------------------------------------------------
+LONG_MIN_BASE_WEEKS = 13          # min weeks between 52w low and breakout
+LONG_MIN_MA_CROSSINGS = 2         # price/SMA30 crossings in last 26w
+LONG_FLAT_SLOPE_ABS = 0.02        # |6w slope| below this = "flattened" MA
+LONG_FLAT_LOOKBACK = 12           # MA must have been flat within last N weeks
+LONG_MAX_EXT_OVER_BASE = 0.10     # breakout close max 10% above prior 26w max
+LONG_MIN_VOL_RATIO = 1.5          # breakout week volume vs 10w average
+
+# ---------------------------------------------------------------------------
+# Short scanner (Stage 3 -> 4)
+# ---------------------------------------------------------------------------
+SHORT_MIN_PRIOR_MARKUP = 1.5      # markup factor low -> high
+SHORT_MARKUP_LOOKBACK = 156       # weeks to search for the prior Stage-2 move
+SHORT_VOL_BONUS_RATIO = 1.5       # volume on breakdown = bonus flag, NOT filter
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
+HISTORY_PERIOD = "4y"             # enough for 52w MRS + prior-markup lookback
+MIN_WEEKS_REQUIRED = 120          # skip tickers with less history
+BATCH_SIZE = 100                  # yfinance batch download size
+MAX_RETRIES = 3
+
+# yfinance suffix mapping for iShares STOXX600 holdings exchanges
+EXCHANGE_SUFFIX = {
+    "Xetra": ".DE", "Deutsche Boerse Ag": ".DE", "Boerse Berlin": ".BE",
+    "London Stock Exchange": ".L", "Euronext Amsterdam": ".AS",
+    "Euronext Paris": ".PA", "Euronext Brussels": ".BR",
+    "Euronext Lisbon": ".LS", "Euronext Milan": ".MI",
+    "Borsa Italiana": ".MI", "SIX Swiss Exchange": ".SW",
+    "Nasdaq Omx Helsinki Ltd.": ".HE", "Nasdaq Omx Stockholm": ".ST",
+    "Nasdaq Omx Copenhagen": ".CO", "Oslo Bors": ".OL",
+    "Wiener Boerse Ag": ".VI", "Bolsa De Madrid": ".MC",
+    "Irish Stock Exchange - All Market": ".IR", "Euronext Dublin": ".IR",
+    "Warsaw Stock Exchange": ".WA",
+}
+
+ISHARES_STOXX600_CSV = (
+    "https://www.ishares.com/de/privatanleger/de/produkte/251931/"
+    "ishares-stoxx-europe-600-ucits-etf-de-fund/1478358465952.ajax"
+    "?fileType=csv&fileName=EXSA_holdings&dataType=fund"
+)
+
+OUTPUT_DIR = "docs"
