@@ -19,6 +19,13 @@ from . import config as C
 
 log = logging.getLogger(__name__)
 HEADERS = {"User-Agent": "Mozilla/5.0 (weinstein-screener)"}
+BROWSER_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 WIKI_SPX = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 WIKI_NDX = "https://en.wikipedia.org/wiki/Nasdaq-100"
@@ -117,9 +124,34 @@ QQQ_HOLDINGS_CSV = (
 )
 
 
+NDX_STOCKANALYSIS = "https://stockanalysis.com/list/nasdaq-100-stocks/"
+
+
+def _ndx_from_stockanalysis() -> pd.DataFrame:
+    """Nasdaq-100 via stockanalysis.com list page (server-rendered table)."""
+    r = requests.get(NDX_STOCKANALYSIS, headers=BROWSER_HEADERS, timeout=30)
+    r.raise_for_status()
+    for t in pd.read_html(io.StringIO(r.text)):
+        t = t.copy()
+        t.columns = _flat_cols(t)
+        tick = next((c for c in t.columns if "symbol" in c or "ticker" in c), None)
+        name = next((c for c in t.columns if "company" in c or "name" in c), None)
+        if not tick or not name or len(t) < 90:
+            continue
+        df = t[[tick, name]].copy()
+        df.columns = ["ticker", "name"]
+        df["ticker"] = (df["ticker"].astype(str).str.strip()
+                        .str.replace(".", "-", regex=False))
+        df = df[df["ticker"].str.len().between(1, 6)]
+        if len(df) >= 90 and "AAPL" in set(df["ticker"]):
+            df["universe"] = "NDX"
+            return df.drop_duplicates("ticker")
+    raise RuntimeError("stockanalysis: no NDX table found")
+
+
 def _ndx_from_qqq() -> pd.DataFrame:
     """Nasdaq-100 via Invesco QQQ holdings CSV (source of truth: the ETF)."""
-    r = requests.get(QQQ_HOLDINGS_CSV, headers=HEADERS, timeout=60)
+    r = requests.get(QQQ_HOLDINGS_CSV, headers=BROWSER_HEADERS, timeout=60)
     r.raise_for_status()
     raw = r.content.decode("utf-8-sig", errors="replace")
     df = pd.read_csv(io.StringIO(raw))
@@ -169,7 +201,11 @@ def nasdaq100() -> pd.DataFrame:
                 df["universe"] = "NDX"
                 log.info("NDX resolved via anchor fallback (col=%r)", col)
                 return df
-    log.warning("NDX not found on Wikipedia, trying QQQ holdings CSV")
+    log.warning("NDX not found on Wikipedia, trying fallback sources")
+    try:
+        return _ndx_from_stockanalysis()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("stockanalysis failed (%r), trying QQQ CSV", exc)
     return _ndx_from_qqq()
 
 
@@ -215,6 +251,8 @@ def stoxx600() -> tuple[pd.DataFrame, list[str]]:
             exch = (str(row[exch_col]).strip() if exch_col else "")
             if exch in ("-", "", "nan") or local in ("EUR", "USD", "GBP", "CHF"):
                 continue                      # ETF cash / FX lines
+            if "eurex" in exch.lower():
+                continue                      # index futures held by the ETF
             suffix = _suffix_for(exch, smap)
             if suffix is None:
                 unresolved.append(f"{local} ({exch})")
