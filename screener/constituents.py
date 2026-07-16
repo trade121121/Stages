@@ -42,6 +42,31 @@ def _suffix_map() -> dict[str, str]:
     return m
 
 
+# substring -> suffix, checked in order (first hit wins); robust against
+# verbose iShares exchange names like "Nyse Euronext - Euronext Paris"
+_SUFFIX_PATTERNS = [
+    ("paris", ".PA"), ("brussels", ".BR"), ("amsterdam", ".AS"),
+    ("lisbon", ".LS"), ("milan", ".MI"), ("italiana", ".MI"),
+    ("xetra", ".DE"), ("frankfurt", ".DE"), ("deutsche", ".DE"),
+    ("copenhagen", ".CO"), ("stockholm", ".ST"), ("helsinki", ".HE"),
+    ("oslo", ".OL"), ("swiss", ".SW"), ("zurich", ".SW"),
+    ("madrid", ".MC"), ("london", ".L"), ("dublin", ".IR"),
+    ("irish", ".IR"), ("wiener", ".VI"), ("vienna", ".VI"),
+    ("warsaw", ".WA"), ("athens", ".AT"), ("prague", ".PR"),
+    ("budapest", ".BD"), ("berlin", ".BE"),
+]
+
+
+def _suffix_for(exch: str, smap: dict[str, str]) -> str | None:
+    e = exch.strip().lower()
+    if e in smap:
+        return smap[e]
+    for pat, suf in _SUFFIX_PATTERNS:
+        if pat in e:
+            return suf
+    return None
+
+
 def _flat_cols(df: pd.DataFrame) -> list[str]:
     """Flatten (Multi)Index columns to lowercase strings."""
     out = []
@@ -86,6 +111,36 @@ def sp500() -> pd.DataFrame:
     raise RuntimeError("SPX table not found on Wikipedia")
 
 
+QQQ_HOLDINGS_CSV = (
+    "https://www.invesco.com/us/financial-products/etfs/holdings/main/"
+    "holdings/0?audienceType=Investor&action=download&ticker=QQQ"
+)
+
+
+def _ndx_from_qqq() -> pd.DataFrame:
+    """Nasdaq-100 via Invesco QQQ holdings CSV (source of truth: the ETF)."""
+    r = requests.get(QQQ_HOLDINGS_CSV, headers=HEADERS, timeout=60)
+    r.raise_for_status()
+    raw = r.content.decode("utf-8-sig", errors="replace")
+    df = pd.read_csv(io.StringIO(raw))
+    df.columns = [str(c).strip() for c in df.columns]
+    low = {c.lower(): c for c in df.columns}
+    tick_col = next((low[c] for c in low if "holding ticker" in c), None) \
+        or next((low[c] for c in low if "ticker" in c and "fund" not in c), None)
+    name_col = next((low[c] for c in low if c == "name" or "name" in c), tick_col)
+    if tick_col is None:
+        raise RuntimeError(f"QQQ CSV: no ticker column in {list(df.columns)!r}")
+    out = df[[tick_col, name_col]].copy()
+    out.columns = ["ticker", "name"]
+    out["ticker"] = (out["ticker"].astype(str).str.strip()
+                     .str.replace(".", "-", regex=False))
+    out = out[out["ticker"].str.len().between(1, 6)]
+    if len(out) < 90 or "AAPL" not in set(out["ticker"]):
+        raise RuntimeError(f"QQQ CSV implausible ({len(out)} rows)")
+    out["universe"] = "NDX"
+    return out.drop_duplicates("ticker")
+
+
 def nasdaq100() -> pd.DataFrame:
     tables = _wiki_tables(WIKI_NDX)
     for t in tables:
@@ -93,9 +148,29 @@ def nasdaq100() -> pd.DataFrame:
         if df is not None:
             df["universe"] = "NDX"
             return df
-    log.error("NDX columns seen: %s", [_flat_cols(t) for t in tables[:8]])
-    raise RuntimeError("NDX table not found on Wikipedia "
-                       "(columns logged above)")
+    # fallback: find the table whose VALUES contain known anchor tickers,
+    # independent of whatever Wikipedia currently calls the columns
+    anchors = {"AAPL", "MSFT", "NVDA"}
+    for t in tables:
+        t = t.copy()
+        t.columns = _flat_cols(t)
+        for col in t.columns:
+            vals = set(t[col].astype(str).str.strip())
+            if anchors <= vals and len(t) >= 90:
+                others = [c for c in t.columns if c != col]
+                name_col = next(
+                    (c for c in others
+                     if t[c].astype(str).str.len().mean() > 6), others[0])
+                df = t[[col, name_col]].copy()
+                df.columns = ["ticker", "name"]
+                df["ticker"] = (df["ticker"].astype(str).str.strip()
+                                .str.replace(".", "-", regex=False))
+                df = df[df["ticker"].str.len().between(1, 6)]
+                df["universe"] = "NDX"
+                log.info("NDX resolved via anchor fallback (col=%r)", col)
+                return df
+    log.warning("NDX not found on Wikipedia, trying QQQ holdings CSV")
+    return _ndx_from_qqq()
 
 
 def stoxx600() -> tuple[pd.DataFrame, list[str]]:
@@ -138,11 +213,14 @@ def stoxx600() -> tuple[pd.DataFrame, list[str]]:
             if not local or local.lower() in ("-", "nan", ""):
                 continue
             exch = (str(row[exch_col]).strip() if exch_col else "")
-            suffix = smap.get(exch.lower())
+            if exch in ("-", "", "nan") or local in ("EUR", "USD", "GBP", "CHF"):
+                continue                      # ETF cash / FX lines
+            suffix = _suffix_for(exch, smap)
             if suffix is None:
                 unresolved.append(f"{local} ({exch})")
                 continue
-            rows.append({"ticker": local.replace(" ", "-") + suffix,
+            clean = local.rstrip(".").replace(".", "-").replace(" ", "-")
+            rows.append({"ticker": clean + suffix,
                          "name": str(row[name_col]).strip(),
                          "universe": "SXXP"})
         out = pd.DataFrame(rows).drop_duplicates("ticker")
