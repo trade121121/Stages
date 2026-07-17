@@ -31,6 +31,7 @@ class Signal:
     spark_sma: list = field(default_factory=list)
     spark_mrs: list = field(default_factory=list)
     sector_mrs: float | None = None
+    signal_type: str = "breakout"     # "breakout" | "pullback" | "breakdown"
 
 
 def _sparks(close: pd.Series, sma: pd.Series, mrs: pd.Series, n: int = 52):
@@ -90,7 +91,38 @@ def evaluate(ticker: str, name: str, universe: str,
         return Signal(ticker, name, universe, "long", c, s, sl, m, fresh,
                       vr if np.isfinite(vr) else float("nan"),
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
-                      False, False, round(score, 2), sc, ss, sm)
+                      False, False, round(score, 2), sc, ss, sm,
+                      signal_type="breakout")
+
+    # ------------------------------------------------- LONG PULLBACK ------
+    # Weinstein's investor entry: Stage 2 confirmed, price retesting the
+    # rising 30W MA / breakout zone after a recent 26w high.
+    hi13 = close.iloc[-C.PB_HIGH_WINDOW:].max()
+    hi26 = close.iloc[-C.BREAKOUT_WINDOW:].max()
+    ext_over_ma = c / s - 1.0
+    pullback_ok = (
+        c > s
+        and sl > C.PB_MIN_SLOPE
+        and m > 0
+        and hi13 >= hi26 * 0.999                  # the high is recent
+        and c <= hi13 * (1 - C.PB_MIN_OFF_HIGH)   # actually pulled back
+        and ext_over_ma <= C.PB_MAX_EXT_OVER_MA   # inside the buy zone
+    )
+    if pullback_ok:
+        vol_dry = np.isfinite(vr) and vr < 1.0    # volume drying up = healthy
+        score = (
+            (C.PB_MAX_EXT_OVER_MA - ext_over_ma) * 60.0   # closer to MA = better
+            + min(m, 15.0) * 0.25
+            + (2.0 if fresh else 0.0)
+            + (2.0 if vol_dry else 0.0)
+            + min(sl * 100, 4.0)
+        )
+        sc, ss, sm = _sparks(close, sma, mrs)
+        return Signal(ticker, name, universe, "long", c, s, sl, m, fresh,
+                      vr if np.isfinite(vr) else float("nan"),
+                      base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
+                      False, bool(vol_dry), round(score, 2), sc, ss, sm,
+                      signal_type="pullback")
 
     # ---------------------------------------------------------- SHORT -----
     div = I.bearish_divergence(close, mrs)
@@ -113,7 +145,8 @@ def evaluate(ticker: str, name: str, universe: str,
         return Signal(ticker, name, universe, "short", c, s, sl, m, fresh,
                       vr if np.isfinite(vr) else float("nan"),
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
-                      div, bool(vol_bonus), round(score, 2), sc, ss, sm)
+                      div, bool(vol_bonus), round(score, 2), sc, ss, sm,
+                      signal_type="breakdown")
 
     return None
 
