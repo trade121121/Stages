@@ -58,6 +58,13 @@ def evaluate(ticker: str, name: str, universe: str,
     c, s, sl, m = float(close.iloc[-1]), float(sma.iloc[-1]), \
         float(slope.iloc[-1]), float(mrs.iloc[-1])
     vr = I.volume_ratio(vol)
+    volr_series = vol / vol.shift(1).rolling(C.VOL_AVG_WEEKS).mean()
+    vol_confirmed = bool(
+        np.isfinite(volr_series.iloc[-C.BREAKOUT_VOL_LOOKBACK:]).any()
+        and np.nanmax(volr_series.iloc[-C.BREAKOUT_VOL_LOOKBACK:])
+        >= C.LONG_MIN_VOL_RATIO)
+    mrs_chg8 = (float(mrs.iloc[-1] - mrs.iloc[-9])
+                if len(mrs.dropna()) >= 9 else float("nan"))
     base_weeks = I.weeks_since_52w_low(close)
     base_vol = I.base_volatility(close)
     fresh = I.fresh_cross_up(mrs)
@@ -77,7 +84,7 @@ def evaluate(ticker: str, name: str, universe: str,
         and base_weeks >= C.LONG_MIN_BASE_WEEKS
         and I.ma_crossings(close, sma) >= C.LONG_MIN_MA_CROSSINGS
         and I.ma_was_flat(slope)
-        and np.isfinite(vr) and vr >= C.LONG_MIN_VOL_RATIO
+        and vol_confirmed
     )
     if long_ok:
         score = (
@@ -123,6 +130,76 @@ def evaluate(ticker: str, name: str, universe: str,
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
                       False, bool(vol_dry), round(score, 2), sc, ss, sm,
                       signal_type="pullback")
+
+    # ---------------------------------------------- PRE-BREAKOUT ----------
+    # Valid base, price coiling within 5% below the range high, MA flat,
+    # RS positive or clearly improving: the week BEFORE the pivot.
+    in_base = (
+        base_weeks >= C.LONG_MIN_BASE_WEEKS
+        and I.ma_crossings(close, sma) >= C.LONG_MIN_MA_CROSSINGS
+        and I.ma_was_flat(slope)
+    )
+    pre_ok = (
+        in_base
+        and not is_26w_high
+        and c >= prior_max_close * (1 - C.PREB_MAX_BELOW_HIGH)
+        and (m > 0 or (m > C.PREB_MIN_MRS
+                       and np.isfinite(mrs_chg8) and mrs_chg8 > 0))
+    )
+    if pre_ok:
+        score = (
+            (1 - (prior_max_close - c) / (prior_max_close * C.PREB_MAX_BELOW_HIGH
+                                          + 1e-9)) * 3.0
+            + max(min(m, 15.0), 0) * 0.2
+            + (max(mrs_chg8, 0) * 0.3 if np.isfinite(mrs_chg8) else 0)
+            + (min(base_vol, 1.5) * 2.0 if np.isfinite(base_vol) else 0)
+            + min(base_weeks, 52) / 13.0
+        )
+        sc, ss, sm = _sparks(close, sma, mrs)
+        return Signal(ticker, name, universe, "long", c, s, sl, m, fresh,
+                      vr if np.isfinite(vr) else float("nan"),
+                      base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
+                      False, False, round(score, 2), sc, ss, sm,
+                      signal_type="pre_breakout")
+
+    # ------------------------------------------------- BASE-LOW -----------
+    # Accumulation-range entry: mature base, price in the lower third of the
+    # range, the low is aged (no knife catching), MRS improving = evidence of
+    # accumulation rather than distribution. Stop logic: below the range low.
+    min26 = close.iloc[-C.BREAKOUT_WINDOW:].min()
+    max26 = close.iloc[-C.BREAKOUT_WINDOW:].max()
+    rng = max26 - min26
+    range_pos = (c - min26) / rng if rng > 0 else 1.0
+    low_age = I.weeks_since_52w_low(close)
+    # in the lower third price naturally sits below the MA for a while ->
+    # count MA crossings over the full year instead of 26 weeks
+    in_base_bl = (
+        base_weeks >= C.LONG_MIN_BASE_WEEKS
+        and I.ma_was_flat(slope)
+        and I.ma_crossings(close, sma, window=52) >= C.LONG_MIN_MA_CROSSINGS
+    )
+    bl_ok = (
+        in_base_bl
+        and range_pos <= C.BL_MAX_RANGE_POS
+        and low_age >= C.BL_MIN_LOW_AGE
+        and m > C.BL_MIN_MRS
+        and np.isfinite(mrs_chg8) and mrs_chg8 > C.BL_MIN_MRS_CHG8
+    )
+    if bl_ok:
+        vol_dry = np.isfinite(vr) and vr < 1.0
+        score = (
+            (C.BL_MAX_RANGE_POS - range_pos) * 12.0     # deeper = better price
+            + max(mrs_chg8, 0) * 0.5                    # accumulation evidence
+            + (2.0 if vol_dry else 0.0)
+            + min(base_weeks, 52) / 13.0
+            + (min(base_vol, 1.5) * 1.5 if np.isfinite(base_vol) else 0)
+        )
+        sc, ss, sm = _sparks(close, sma, mrs)
+        return Signal(ticker, name, universe, "long", c, s, sl, m, fresh,
+                      vr if np.isfinite(vr) else float("nan"),
+                      base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
+                      False, bool(vol_dry), round(score, 2), sc, ss, sm,
+                      signal_type="base_low")
 
     # ---------------------------------------------------------- SHORT -----
     div = I.bearish_divergence(close, mrs)
