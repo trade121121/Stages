@@ -38,10 +38,21 @@ MRS_FRESH_CROSS_WEEKS = 8     # "fresh" zero-line cross window
 # ---------------------------------------------------------------------------
 LONG_MIN_BASE_WEEKS = 13          # min weeks between 52w low and breakout
 LONG_MIN_MA_CROSSINGS = 2         # price/SMA30 crossings in last 26w
-LONG_FLAT_SLOPE_ABS = 0.02        # |6w slope| below this = "flattened" MA
-LONG_FLAT_LOOKBACK = 12           # MA must have been flat within last N weeks
-LONG_MAX_EXT_OVER_BASE = 0.10     # breakout close max 10% above prior 26w max
-LONG_MIN_VOL_RATIO = 1.5          # breakout week volume vs 10w average
+LONG_FLAT_SLOPE_ABS = 0.03        # |6w slope| below this = "flattened" MA
+LONG_FLAT_LOOKBACK = 20           # MA must have been flat within last N weeks
+LONG_MAX_EXT_OVER_BASE = 0.20     # breakout close max 20% above prior 26w max
+LONG_MIN_VOL_RATIO = 1.5          # volume confirmation vs 10w average ...
+BREAKOUT_VOL_LOOKBACK = 4         # ... required in any of the last N weeks
+
+# Pre-breakout (still inside the base, coiling under the range high)
+PREB_MAX_BELOW_HIGH = 0.05        # within 5% below the 26w range high
+PREB_MIN_MRS = -5.0               # RS may be slightly negative if improving
+
+# Base-low entries (accumulation-range style, RS-disambiguated)
+BL_MAX_RANGE_POS = 0.33           # price in lower third of the 26w range
+BL_MIN_LOW_AGE = 8                # 52w low must be at least N weeks old
+BL_MIN_MRS_CHG8 = 0.0             # MRS must be improving over 8 weeks
+BL_MIN_MRS = -20.0                # but not a total laggard
 
 # Long pullback entry (Stage 2 continuation: retest of rising 30W MA)
 PB_MAX_EXT_OVER_MA = 0.08         # buy zone: within 8% above the 30W MA
