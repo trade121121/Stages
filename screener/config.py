@@ -43,6 +43,12 @@ LONG_FLAT_LOOKBACK = 12           # MA must have been flat within last N weeks
 LONG_MAX_EXT_OVER_BASE = 0.10     # breakout close max 10% above prior 26w max
 LONG_MIN_VOL_RATIO = 1.5          # breakout week volume vs 10w average
 
+# Long pullback entry (Stage 2 continuation: retest of rising 30W MA)
+PB_MAX_EXT_OVER_MA = 0.08         # buy zone: within 8% above the 30W MA
+PB_MIN_OFF_HIGH = 0.03            # pulled back at least 3% from recent high
+PB_MIN_SLOPE = 0.005              # MA must be clearly rising
+PB_HIGH_WINDOW = 13               # 26w high must have been made in last N weeks
+
 # ---------------------------------------------------------------------------
 # Short scanner (Stage 3 -> 4)
 # ---------------------------------------------------------------------------
