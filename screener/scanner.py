@@ -143,6 +143,9 @@ def evaluate(ticker: str, name: str, universe: str,
         in_base
         and not is_26w_high
         and c >= prior_max_close * (1 - C.PREB_MAX_BELOW_HIGH)
+        and c > s                                  # upper half of the base
+        and abs(sl) <= C.PREB_MAX_ABS_SLOPE        # MA flat NOW
+        and c / s - 1 <= C.PREB_MAX_EXT_OVER_MA    # still base geometry
         and (m > 0 or (m > C.PREB_MIN_MRS
                        and np.isfinite(mrs_chg8) and mrs_chg8 > 0))
     )
