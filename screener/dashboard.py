@@ -79,6 +79,7 @@ tr.row:hover{background:#EFEEE6}
 .badge.fresh{color:var(--long);border-color:var(--long)}
 .badge.div{color:var(--short);border-color:var(--short)}
 .badge.vol{color:var(--flag);border-color:var(--flag)}
+.badge.pb{color:var(--mrs);border-color:var(--mrs)}
 .quad{font-size:11px;padding:1px 6px;border-radius:2px;border:1px solid var(--grid)}
 .quad.leader{color:var(--long);border-color:var(--long)}
 .quad.avoid{color:var(--short);border-color:var(--short)}
@@ -161,6 +162,7 @@ function table(rows,cols,detail){
 }
 const sigCols=[
   {h:"Ticker",f:r=>`<span class="tick">${r.ticker}</span>`+
+    (r.signal_type==="pullback"?`<span class="badge pb">PULLBACK</span>`:"")+
     (r.mrs_fresh_cross?`<span class="badge fresh">RS-CROSS</span>`:"")+
     (r.divergence?`<span class="badge div">RS-DIV</span>`:"")+
     (r.vol_bonus?`<span class="badge vol">VOL</span>`:""),k:r=>r.ticker},
@@ -197,7 +199,7 @@ const wlCols=[
 /* ---------- app ---------- */
 const TABS=[
  {id:"long",label:`LONG · Stage 1→2 (${D.long.length})`,
-  render:()=>`<p class="note">Ausbruch auf 26W-Hoch · Kurs &gt; steigender 30W-MA · MRS &gt; 0 · Basis ≥ 13W mit ≥ 2 MA-Crossings · Volumen ≥ 1,5× — sortiert nach Score.</p>`+
+  render:()=>`<p class="note">Zwei Signaltypen: <b>Breakout</b> (Ausbruch auf 26W-Hoch aus Basis, Volumen ≥ 1,5×) und <b>Pullback</b> (Stage 2 bestätigt, Retest ≤ 8% über steigendem 30W-MA nach frischem 26W-Hoch; VOL-Flag = Volumen trocknet aus). Beide: MRS &gt; 0.</p>`+
    table(D.long,sigCols,r=>mansfieldPanel(r))},
  {id:"short",label:`SHORT · Stage 3→4 (${D.short.length})`,
   render:()=>`<p class="note">Bruch auf 26W-Tief · Kurs &lt; kippendem 30W-MA · MRS &lt; 0 · vorheriger Stage-2-Markup vorhanden · Volumen nur Bonus-Flag.</p>`+
