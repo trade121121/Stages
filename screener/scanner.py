@@ -181,8 +181,12 @@ def evaluate(ticker: str, name: str, universe: str,
         and I.ma_was_flat(slope)
         and I.ma_crossings(close, sma, window=52) >= C.LONG_MIN_MA_CROSSINGS
     )
+    approach = slope.iloc[-52:-26].dropna()
+    approach_ok = (len(approach) > 0
+                   and float(approach.mean()) <= C.BL_MAX_ENTRY_SLOPE)
     bl_ok = (
         in_base_bl
+        and approach_ok
         and range_pos <= C.BL_MAX_RANGE_POS
         and low_age >= C.BL_MIN_LOW_AGE
         and m > C.BL_MIN_MRS
@@ -206,11 +210,13 @@ def evaluate(ticker: str, name: str, universe: str,
 
     # ---------------------------------------------------------- SHORT -----
     div = I.bearish_divergence(close, mrs)
+    hi52 = close.iloc[-52:].max()
     short_ok = (
         c < s
         and sl <= 0
         and m < 0
         and is_26w_low
+        and c >= hi52 * (1 - C.SHORT_MAX_OFF_HIGH)   # fresh break, no waterfall
         and I.prior_markup(close)
     )
     if short_ok:
@@ -227,6 +233,34 @@ def evaluate(ticker: str, name: str, universe: str,
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
                       div, bool(vol_bonus), round(score, 2), sc, ss, sm,
                       signal_type="breakdown")
+
+    # ------------------------------------------------- SHORT RALLY --------
+    # Weinstein's actual short entry in an established downtrend: price
+    # rallies back into the zone just below the DECLINING 30W MA.
+    lo13 = close.iloc[-C.SR_LOW_WINDOW:].min()
+    lo26 = close.iloc[-C.BREAKOUT_WINDOW:].min()
+    rally_ok = (
+        c < s
+        and sl < -C.PB_MIN_SLOPE                      # MA clearly falling
+        and m < 0
+        and lo13 <= lo26 * 1.001                      # fresh weakness on record
+        and c >= lo13 * (1 + C.SR_MIN_OFF_LOW)        # actually rallied
+        and (s - c) / s <= C.SR_MAX_BELOW_MA          # inside the short zone
+        and I.prior_markup(close)
+    )
+    if rally_ok:
+        score = (
+            (C.SR_MAX_BELOW_MA - (s - c) / s) * 60.0  # closer to MA = better
+            + min(abs(m), 15.0) * 0.3
+            + (3.0 if div else 0.0)
+            + min(abs(sl) * 100, 4.0)
+        )
+        sc, ss, sm = _sparks(close, sma, mrs)
+        return Signal(ticker, name, universe, "short", c, s, sl, m, fresh,
+                      vr if np.isfinite(vr) else float("nan"),
+                      base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
+                      div, False, round(score, 2), sc, ss, sm,
+                      signal_type="rally")
 
     return None
 
