@@ -105,6 +105,7 @@ svg text{font:10px "IBM Plex Mono",monospace;fill:var(--muted)}
 <main id="main"></main>
 <script>
 const D = __DATA__;
+const sortState = {};   // {tabId: {col, dir}} — ueberlebt Re-Renders
 const fmt=(v,d=2)=>v==null||Number.isNaN(v)?"–":Number(v).toFixed(d);
 const cls=v=>v>0?"pos":v<0?"neg":"";
 
@@ -165,6 +166,7 @@ const sigCols=[
     (r.signal_type==="pullback"?`<span class="badge pb">PULLBACK</span>`:"")+
     (r.signal_type==="pre_breakout"?`<span class="badge pb">PRE-BO</span>`:"")+
     (r.signal_type==="base_low"?`<span class="badge vol">BASE-LOW</span>`:"")+
+    (r.signal_type==="rally"?`<span class="badge div">RALLY</span>`:"")+
     (r.mrs_fresh_cross?`<span class="badge fresh">RS-CROSS</span>`:"")+
     (r.divergence?`<span class="badge div">RS-DIV</span>`:"")+
     (r.vol_bonus?`<span class="badge vol">VOL</span>`:""),k:r=>r.ticker},
@@ -213,7 +215,7 @@ const TABS=[
   render:()=>`<p class="note">Akkumulations-Range-Einstieg: gereifte Basis, Kurs im unteren Drittel der 26W-Range, Tief ≥ 8 Wochen alt, <b>MRS über 8 Wochen steigend</b> (Akkumulations-Beweis). Stop-Logik: unter dem Range-Tief. Kein Weinstein-Signal — Location-Edge mit RS-Filter.</p>`+
    table(LBL,sigCols,r=>mansfieldPanel(r))},
  {id:"short",label:`SHORT · Stage 3→4 (${D.short.length})`,
-  render:()=>`<p class="note">Bruch auf 26W-Tief · Kurs &lt; kippendem 30W-MA · MRS &lt; 0 · vorheriger Stage-2-Markup vorhanden · Volumen nur Bonus-Flag.</p>`+
+  render:()=>`<p class="note"><b>Breakdown</b>: frischer Bruch auf 26W-Tief, max. 40% unter dem 52W-Hoch (keine Wasserfall-Fortsetzung), Kurs &lt; kippendem 30W-MA, vorheriger Stage-2-Markup. <b>RALLY</b>: etablierter Abwärtstrend, Kurs ≤ 8% unter fallendem 30W-MA nach Erholung vom Tief — die Weinstein-Short-Zone. Beide: MRS &lt; 0.</p>`+
    table(D.short,sigCols,r=>mansfieldPanel(r))},
  {id:"sectors",label:"SEKTOR-ROTATION",
   render:()=>`<p class="note">Mansfield RS aller Sektor-/Themen-ETFs gegen SPX. Δ 4W = Momentum der relativen Stärke — die Wachablösung zeigt sich hier zuerst.</p>`+
@@ -231,12 +233,22 @@ function show(id){
     const d=m.querySelector(`tr.detail[data-ri="${tr.dataset.ri}"]`);
     if(d)d.style.display=d.style.display==="none"?"":"none";
   }));
-  m.querySelectorAll("th").forEach(th=>th.addEventListener("click",()=>{/* simple resort */
+  // Sortierpfeile aus persistentem Zustand wiederherstellen
+  m.querySelectorAll("th").forEach(th=>{
+    const st=sortState[id];
+    if(st&&st.col===+th.dataset.i)
+      th.querySelector(".arr").textContent=st.dir==="asc"?"\u25B2":"\u25BC";
+  });
+  m.querySelectorAll("th").forEach(th=>th.addEventListener("click",()=>{
     const tabRows={stage12:L12,stage2:LPB,baselow:LBL,short:D.short,sectors:D.sectors,watch:D.watchlists}[id];
     const colsets={stage12:sigCols,stage2:sigCols,baselow:sigCols,short:sigCols,sectors:secCols,watch:wlCols};
-    const col=colsets[id][+th.dataset.i];
-    const dir=th.dataset.dir==="asc"?"desc":"asc";th.dataset.dir=dir;
-    tabRows.sort((a,b)=>{const x=col.k(a),y=col.k(b);
+    const i=+th.dataset.i, col=colsets[id][i];
+    const prev=sortState[id];
+    const dir=(prev&&prev.col===i&&prev.dir==="desc")?"asc":"desc";
+    sortState[id]={col:i,dir};
+    const val=r=>{const v=col.k(r);
+      return (v==null||(typeof v==="number"&&Number.isNaN(v)))?-Infinity:v;};
+    tabRows.sort((a,b)=>{const x=val(a),y=val(b);
       return (x>y?1:x<y?-1:0)*(dir==="asc"?1:-1);});
     show(id);
   }));
