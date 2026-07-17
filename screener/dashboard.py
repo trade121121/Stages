@@ -163,6 +163,8 @@ function table(rows,cols,detail){
 const sigCols=[
   {h:"Ticker",f:r=>`<span class="tick">${r.ticker}</span>`+
     (r.signal_type==="pullback"?`<span class="badge pb">PULLBACK</span>`:"")+
+    (r.signal_type==="pre_breakout"?`<span class="badge pb">PRE-BO</span>`:"")+
+    (r.signal_type==="base_low"?`<span class="badge vol">BASE-LOW</span>`:"")+
     (r.mrs_fresh_cross?`<span class="badge fresh">RS-CROSS</span>`:"")+
     (r.divergence?`<span class="badge div">RS-DIV</span>`:"")+
     (r.vol_bonus?`<span class="badge vol">VOL</span>`:""),k:r=>r.ticker},
@@ -197,10 +199,19 @@ const wlCols=[
 ];
 
 /* ---------- app ---------- */
+const L12=D.long.filter(r=>r.signal_type==="breakout"||r.signal_type==="pre_breakout");
+const LPB=D.long.filter(r=>r.signal_type==="pullback");
+const LBL=D.long.filter(r=>r.signal_type==="base_low");
 const TABS=[
- {id:"long",label:`LONG · Stage 1→2 (${D.long.length})`,
-  render:()=>`<p class="note">Zwei Signaltypen: <b>Breakout</b> (Ausbruch auf 26W-Hoch aus Basis, Volumen ≥ 1,5×) und <b>Pullback</b> (Stage 2 bestätigt, Retest ≤ 8% über steigendem 30W-MA nach frischem 26W-Hoch; VOL-Flag = Volumen trocknet aus). Beide: MRS &gt; 0.</p>`+
-   table(D.long,sigCols,r=>mansfieldPanel(r))},
+ {id:"stage12",label:`LONG · Stage 1→2 (${L12.length})`,
+  render:()=>`<p class="note"><b>Breakout</b>: Ausbruch auf 26W-Hoch aus valider Basis, max. 20% über Basis-Top, Volumen ≥ 1,5× in einer der letzten 4 Wochen. <b>PRE-BO</b>: noch in der Basis, ≤ 5% unter dem Range-Hoch, MA flach, RS positiv oder klar verbessernd — Kandidaten vor dem Pivot.</p>`+
+   table(L12,sigCols,r=>mansfieldPanel(r))},
+ {id:"stage2",label:`LONG · Stage-2-Pullback (${LPB.length})`,
+  render:()=>`<p class="note">Stage 2 bestätigt: Retest ≤ 8% über steigendem 30W-MA nach frischem 26W-Hoch. VOL-Flag = Volumen trocknet im Rücksetzer aus (gesund). Stop-Logik: Wochenschluss unter dem 30W-MA.</p>`+
+   table(LPB,sigCols,r=>mansfieldPanel(r))},
+ {id:"baselow",label:`BASIS-TIEF (${LBL.length})`,
+  render:()=>`<p class="note">Akkumulations-Range-Einstieg: gereifte Basis, Kurs im unteren Drittel der 26W-Range, Tief ≥ 8 Wochen alt, <b>MRS über 8 Wochen steigend</b> (Akkumulations-Beweis). Stop-Logik: unter dem Range-Tief. Kein Weinstein-Signal — Location-Edge mit RS-Filter.</p>`+
+   table(LBL,sigCols,r=>mansfieldPanel(r))},
  {id:"short",label:`SHORT · Stage 3→4 (${D.short.length})`,
   render:()=>`<p class="note">Bruch auf 26W-Tief · Kurs &lt; kippendem 30W-MA · MRS &lt; 0 · vorheriger Stage-2-Markup vorhanden · Volumen nur Bonus-Flag.</p>`+
    table(D.short,sigCols,r=>mansfieldPanel(r))},
@@ -221,8 +232,8 @@ function show(id){
     if(d)d.style.display=d.style.display==="none"?"":"none";
   }));
   m.querySelectorAll("th").forEach(th=>th.addEventListener("click",()=>{/* simple resort */
-    const tabRows={long:D.long,short:D.short,sectors:D.sectors,watch:D.watchlists}[id];
-    const colsets={long:sigCols,short:sigCols,sectors:secCols,watch:wlCols};
+    const tabRows={stage12:L12,stage2:LPB,baselow:LBL,short:D.short,sectors:D.sectors,watch:D.watchlists}[id];
+    const colsets={stage12:sigCols,stage2:sigCols,baselow:sigCols,short:sigCols,sectors:secCols,watch:wlCols};
     const col=colsets[id][+th.dataset.i];
     const dir=th.dataset.dir==="asc"?"desc":"asc";th.dataset.dir=dir;
     tabRows.sort((a,b)=>{const x=col.k(a),y=col.k(b);
@@ -242,7 +253,7 @@ const nav=document.getElementById("tabs");
 TABS.forEach((t,i)=>{const b=document.createElement("button");
   b.textContent=t.label;b.dataset.id=t.id;
   b.addEventListener("click",()=>show(t.id));nav.appendChild(b);});
-show("long");
+show("stage12");
 </script>
 </body>
 </html>
