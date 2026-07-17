@@ -55,6 +55,9 @@ BL_MAX_RANGE_POS = 0.33           # price in lower third of the 26w range
 BL_MIN_LOW_AGE = 8                # 52w low must be at least N weeks old
 BL_MIN_MRS_CHG8 = 0.0             # MRS must be improving over 8 weeks
 BL_MIN_MRS = -20.0                # but not a total laggard
+BL_MAX_ENTRY_SLOPE = 0.01         # MA slope on APPROACH to the range (26-52w
+                                  # ago) must be flat/falling: base after a
+                                  # decline (Stage 1), not a top after a markup
 
 # Long pullback entry (Stage 2 continuation: retest of rising 30W MA)
 PB_MAX_EXT_OVER_MA = 0.08         # buy zone: within 8% above the 30W MA
@@ -68,6 +71,13 @@ PB_HIGH_WINDOW = 13               # 26w high must have been made in last N weeks
 SHORT_MIN_PRIOR_MARKUP = 1.5      # markup factor low -> high
 SHORT_MARKUP_LOOKBACK = 156       # weeks to search for the prior Stage-2 move
 SHORT_VOL_BONUS_RATIO = 1.5       # volume on breakdown = bonus flag, NOT filter
+SHORT_MAX_OFF_HIGH = 0.40         # fresh breakdowns only: price max 40% below
+                                  # the 52w high (no waterfall continuation)
+
+# Short rally entry (Weinstein short: rally back to the DECLINING 30W MA)
+SR_MAX_BELOW_MA = 0.08            # within 8% below the falling MA
+SR_MIN_OFF_LOW = 0.03             # rallied at least 3% off the recent low
+SR_LOW_WINDOW = 13                # 26w low must have been made in last N weeks
 
 # ---------------------------------------------------------------------------
 # Data
