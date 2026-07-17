@@ -47,6 +47,8 @@ BREAKOUT_VOL_LOOKBACK = 4         # ... required in any of the last N weeks
 # Pre-breakout (still inside the base, coiling under the range high)
 PREB_MAX_BELOW_HIGH = 0.05        # within 5% below the 26w range high
 PREB_MIN_MRS = -5.0               # RS may be slightly negative if improving
+PREB_MAX_ABS_SLOPE = 0.04         # MA must be flat NOW, not just historically
+PREB_MAX_EXT_OVER_MA = 0.15       # price max 15% above the flat MA
 
 # Base-low entries (accumulation-range style, RS-disambiguated)
 BL_MAX_RANGE_POS = 0.33           # price in lower third of the 26w range
