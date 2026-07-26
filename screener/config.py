@@ -86,8 +86,12 @@ PB_HIGH_WINDOW = 13               # 26w high must have been made in last N weeks
 SHORT_MIN_PRIOR_MARKUP = 1.5      # markup factor low -> high
 SHORT_MARKUP_LOOKBACK = 156       # weeks to search for the prior Stage-2 move
 SHORT_VOL_BONUS_RATIO = 1.5       # volume on breakdown = bonus flag, NOT filter
-SHORT_MAX_OFF_HIGH = 0.40         # fresh breakdowns only: price max 40% below
-                                  # the 52w high (no waterfall continuation)
+# How much of the PRIOR MARKUP has already been given back, measured in log
+# space so the test is scale-aware: a stock that ran 40x and is down 52% has
+# retraced ~19% of its move, while one that ran 60% and is down 52% has given
+# back everything. Raw "% below the 52w high" cannot tell those apart.
+SHORT_MAX_RETRACE = 0.60          # fresh breakdown: max 60% of the markup gone
+SHORT_RALLY_MAX_RETRACE = 0.80    # rally entries may sit deeper in Stage 4
 
 # Short rally entry (Weinstein short: rally back to the DECLINING 30W MA)
 SR_MAX_BELOW_MA = 0.08            # within 8% below the falling MA
