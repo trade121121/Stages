@@ -69,6 +69,16 @@ def evaluate(ticker: str, name: str, universe: str,
     base_vol = I.base_volatility(close)
     fresh = I.fresh_cross_up(mrs)
 
+    # Share of the BASE PERIOD that closed below the 30W MA — the single best
+    # discriminator between a real base and a running uptrend. Measured over
+    # weeks -52..-8 so the breakout leg itself (during which price is above
+    # the MA by construction) does not dilute the reading.
+    base_win = close.iloc[-52:-8]
+    sma_win = sma.iloc[-52:-8]
+    valid = sma_win.notna()
+    time_below = (float((base_win[valid] < sma_win[valid]).mean())
+                  if valid.any() else 0.0)
+
     prior_max_close = close.iloc[-(C.BREAKOUT_WINDOW + 1):-1].max()
     prior_min_close = close.iloc[-(C.BREAKOUT_WINDOW + 1):-1].min()
     is_26w_high = c >= prior_max_close
@@ -84,6 +94,7 @@ def evaluate(ticker: str, name: str, universe: str,
         and base_weeks >= C.LONG_MIN_BASE_WEEKS
         and I.ma_crossings(close, sma) >= C.LONG_MIN_MA_CROSSINGS
         and I.ma_was_flat(slope)
+        and time_below >= C.LONG_MIN_TIME_BELOW_MA
         and vol_confirmed
     )
     if long_ok:
@@ -138,6 +149,7 @@ def evaluate(ticker: str, name: str, universe: str,
         base_weeks >= C.LONG_MIN_BASE_WEEKS
         and I.ma_crossings(close, sma) >= C.LONG_MIN_MA_CROSSINGS
         and I.ma_was_flat(slope)
+        and time_below >= C.LONG_MIN_TIME_BELOW_MA
     )
     pre_ok = (
         in_base
