@@ -135,3 +135,26 @@ def markup_retrace(close: pd.Series,
     if low_before <= 0 or cur <= 0 or high <= low_before:
         return 1.0
     return float(np.log(high / cur) / np.log(high / low_before))
+
+
+def atr_pct(weekly: pd.DataFrame, weeks: int = 26) -> float:
+    """Average weekly true range as a share of price.
+
+    Zones (buy/short bands around the 30W MA) must scale with a stock's own
+    noise: 8% is a wide band for a utility and pure noise for a 15%-ATR miner.
+    """
+    h, l, c = weekly["high"], weekly["low"], weekly["close"]
+    pc = c.shift(1)
+    tr = pd.concat([h - l, (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1)
+    a = tr.rolling(weeks).mean().iloc[-1]
+    px = float(c.iloc[-1])
+    if not np.isfinite(a) or px <= 0:
+        return float("nan")
+    return float(a) / px
+
+
+def zone_width(atr: float, mult: float, lo: float, hi: float) -> float:
+    """Volatility-scaled zone width, clamped to a sane range."""
+    if not np.isfinite(atr):
+        return lo
+    return float(min(max(atr * mult, lo), hi))
