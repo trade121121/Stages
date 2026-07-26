@@ -240,13 +240,19 @@ function macroPanel(){
       <div class="chk" style="margin-top:8px">Weinsteins absolute Schwellen (&lt;15 billig, &gt;26 teuer) stammen aus der Zeit vor Aktienrückkäufen. Seit den 1990ern liegt das Verhältnis dauerhaft über 26 — die Kennzahl zeigt seither permanent „teuer" und hat als Timing-Signal praktisch keinen Wert mehr. Nur das Perzentil gegen die eigene Historie ist noch lesbar. <b>Fließt bewusst nicht in den Score ein.</b></div>
     </div>`:`<div class="panel"><h3>Preis / Dividende</h3><div class="chk">Keine Dividendendaten abrufbar.</div></div>`;
 
+  const hist=(M.history||[]).map(h=>h.score);
+  const histBlock=hist.length>2?`<div class="panel"><h3>Score-Verlauf · ${hist.length} Läufe</h3>
+      ${spark(hist,"var(--ink)",420,60)}
+      <div class="chk">Erster Wert ${fmt(hist[0],0)} · aktuell ${fmt(hist[hist.length-1],0)}. Eine Einzelmessung sagt wenig — die Richtung über Wochen ist die eigentliche Information.</div></div>`
+    :`<div class="panel"><h3>Score-Verlauf</h3><div class="chk">Noch ${hist.length||0} Datenpunkt(e). Der Verlauf baut sich mit jedem Lauf auf und wird ab etwa fünf Wochen lesbar.</div></div>`;
   return `<div class="gauge">
       <h2 class="${cls(M.score)}">${M.score>0?"+":""}${fmt(M.score,0)}</h2>
-      <div class="lbl">${M.label} · gewichteter Verbund aus ${M.components.length} Komponenten · Breite über ${M.breadth_universe} US-Titel</div>
+      <div class="lbl">${M.label} · gewichteter Verbund aus ${M.components.length} Komponenten · Breite über ${M.breadth_universe} US-Titel · Perzentile gegen ${M.hist_weeks||0} Wochen eigene Historie</div>
       <div class="track"><div class="needle" style="left:${pos}%"></div></div>
       <div class="ends"><span>−100 · näher am Top</span><span>0 · Zyklusmitte</span><span>+100 · näher am Boden</span></div>
     </div>
     <p class="note"><b>Lesart:</b> Dieser Tab ist mean-revertierend (Zyklusposition), der Rest des Screeners trendfolgend (Einstiege). Sie werden sich widersprechen — das ist beabsichtigt. Weinstein nutzte den Makro-Blick zur <b>Steuerung der Gesamtexponierung</b>, nicht für einzelne Entries.</p>
+    ${histBlock}
     <div class="panel"><h3>Komponenten</h3>
       <table><thead><tr><th>Indikator</th><th>Wert</th><th>Score</th><th>Beitrag</th></tr></thead>
       <tbody>${compRows}</tbody></table></div>
