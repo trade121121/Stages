@@ -7,6 +7,17 @@ BENCH_US = "^GSPC"        # S&P 500
 BENCH_EU = "^STOXX"       # STOXX Europe 600
 BENCH_HK = "^HSI"         # Hang Seng
 
+# World markets — Weinstein: foreign markets often turn before the US
+WORLD_INDICES = {
+    "^GSPC": "S&P 500 (US)", "^IXIC": "Nasdaq Composite (US)",
+    "^RUT": "Russell 2000 (US)", "^STOXX": "STOXX Europe 600",
+    "^GDAXI": "DAX (DE)", "^FTSE": "FTSE 100 (UK)",
+    "^N225": "Nikkei 225 (JP)", "^HSI": "Hang Seng (HK)",
+    "^KS11": "KOSPI (KR)", "^AXJO": "ASX 200 (AU)",
+    "^BSESN": "Sensex (IN)", "^BVSP": "Bovespa (BR)",
+}
+PD_PROXY = "SPY"                  # dividend proxy for the price/dividend ratio
+
 # ---------------------------------------------------------------------------
 # Sector / theme rotation view: everything is measured against BENCH_US
 # ---------------------------------------------------------------------------
