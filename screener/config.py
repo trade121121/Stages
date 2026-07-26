@@ -49,7 +49,11 @@ MRS_FRESH_CROSS_WEEKS = 8     # "fresh" zero-line cross window
 # ---------------------------------------------------------------------------
 LONG_MIN_BASE_WEEKS = 13          # min weeks between 52w low and breakout
 LONG_MIN_MA_CROSSINGS = 2         # price/SMA30 crossings in last 26w
-LONG_FLAT_SLOPE_ABS = 0.03        # |6w slope| below this = "flattened" MA
+LONG_FLAT_SLOPE_ABS = 0.015       # |6w slope| below this = "flattened" MA
+                                  # (3% over 6w is a strong uptrend, not a base)
+LONG_MIN_TIME_BELOW_MA = 0.25     # in a real base the MA runs THROUGH the price
+                                  # action: >=25% of base weeks closed below it.
+                                  # A running Stage 2 sits above it ~always.
 LONG_FLAT_LOOKBACK = 20           # MA must have been flat within last N weeks
 LONG_MAX_EXT_OVER_BASE = 0.20     # breakout close max 20% above prior 26w max
 LONG_MIN_VOL_RATIO = 1.5          # volume confirmation vs 10w average ...
@@ -93,7 +97,8 @@ SR_LOW_WINDOW = 13                # 26w low must have been made in last N weeks
 # ---------------------------------------------------------------------------
 # Data
 # ---------------------------------------------------------------------------
-HISTORY_PERIOD = "4y"             # enough for 52w MRS + prior-markup lookback
+HISTORY_PERIOD = "8y"             # 52w MRS, 156w markup lookback AND a
+                                  # usable baseline for breadth percentiles
 MIN_WEEKS_REQUIRED = 120          # skip tickers with less history
 BATCH_SIZE = 100                  # yfinance batch download size
 MAX_RETRIES = 3
