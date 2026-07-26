@@ -111,3 +111,27 @@ def bearish_divergence(close: pd.Series, mrs: pd.Series) -> bool:
     high_52w = close.iloc[-52:].max()
     recent_high = close.iloc[-26:].max()
     return bool(recent_high >= high_52w * 0.999 and mrs.iloc[-1] < 0)
+
+
+def markup_retrace(close: pd.Series,
+                   lookback: int = C.SHORT_MARKUP_LOOKBACK) -> float:
+    """Fraction of the prior Stage-2 markup already retraced, in log space.
+
+    0.0 = still at the high, 1.0 = the entire markup has been given back.
+    Log space keeps the measure meaningful for multi-baggers: a 40x runner
+    that halved has retraced far less of its move than a 1.6x runner that
+    halved, even though both are "50% off the high".
+    """
+    lb = min(len(close), lookback)
+    if lb < 60:
+        return 1.0
+    w = close.iloc[-lb:].values
+    i_max = int(np.argmax(w))
+    if i_max < 4:
+        return 1.0
+    low_before = float(w[:i_max].min())
+    high = float(w[i_max])
+    cur = float(w[-1])
+    if low_before <= 0 or cur <= 0 or high <= low_before:
+        return 1.0
+    return float(np.log(high / cur) / np.log(high / low_before))
