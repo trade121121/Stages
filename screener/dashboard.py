@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 
 def render(long_signals, short_signals, sectors_df, watchlist_rows,
-           issues: list[str], stats: dict) -> str:
+           issues: list[str], stats: dict, macro: dict | None = None) -> str:
     payload = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "stats": stats,
@@ -20,6 +20,7 @@ def render(long_signals, short_signals, sectors_df, watchlist_rows,
         "sectors": sectors_df.to_dict(orient="records") if len(sectors_df) else [],
         "watchlists": watchlist_rows,
         "issues": issues,
+        "macro": macro,
     }
     return _TEMPLATE.replace("__DATA__",
                              json.dumps(_sanitize(payload), allow_nan=False))
@@ -92,6 +93,19 @@ svg text{font:10px "IBM Plex Mono",monospace;fill:var(--muted)}
 .issues h3{font:600 12px "IBM Plex Mono";text-transform:uppercase;color:var(--ink)}
 .spark{vertical-align:middle}
 .note{font-size:12px;color:var(--muted);margin:0 0 14px}
+.gauge{background:var(--panel);border:1px solid var(--ink);padding:18px 20px;margin-bottom:18px}
+.gauge h2{font:700 34px/1 "Space Grotesk",sans-serif;margin:0 0 2px}
+.gauge .lbl{font-size:13px;color:var(--muted);margin-bottom:14px}
+.track{position:relative;height:26px;background:linear-gradient(90deg,#F2DEDA,#EFEEE6,#DCEBE2);border:1px solid var(--grid)}
+.needle{position:absolute;top:-5px;bottom:-5px;width:3px;background:var(--ink)}
+.ends{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:5px}
+.sd{display:flex;height:24px;border:1px solid var(--ink);margin:6px 0 4px;font-size:10px}
+.sd div{display:flex;align-items:center;justify-content:center;color:#fff}
+.s1{background:#8A8D93}.s2{background:var(--long)}.s3{background:var(--flag)}.s4{background:var(--short)}
+.panel{background:var(--panel);border:1px solid var(--ink);padding:14px 16px;margin-bottom:18px}
+.panel h3{font:600 12px "IBM Plex Mono";text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px}
+.chk{font-size:12px;line-height:1.9;color:var(--muted)}
+.chk b{color:var(--ink)}
 @media(max-width:720px){main,header,nav{padding-left:12px;padding-right:12px}
   td,th{padding:6px 6px;font-size:12px}}
 </style>
@@ -201,10 +215,79 @@ const wlCols=[
 ];
 
 /* ---------- app ---------- */
+function macroPanel(){
+  const M=D.macro;
+  if(!M)return `<div class="empty">Marktlage-Modul lieferte keine Daten — siehe Hinweise unten.</div>`;
+  const pos=(M.score+100)/2;
+  const compRows=M.components.map(c=>`<tr><td><b>${c.key}</b><div style="color:var(--muted);font-size:11px">${c.detail}</div></td>
+    <td>${c.value}</td><td class="${cls(c.score)}">${fmt(c.score,2)}</td>
+    <td class="${cls(c.contribution)}">${fmt(c.contribution,1)}</td></tr>`).join("");
+  const sd=M.stage_dist.pct;
+  const worldRows=M.world.map(r=>`<tr><td><span class="tick">${r.symbol}</span></td><td>${r.name}</td>
+    <td>${r.stage_name}</td><td class="${cls(r.vs_ma)}">${fmt(r.vs_ma,1)}%</td>
+    <td class="${cls(r.slope)}">${fmt(r.slope,2)}%</td>
+    <td class="${cls(r.mrs)}">${r.mrs==null?"–":fmt(r.mrs,1)}</td>
+    <td>${spark(r.spark,"var(--ink)",120,26)}</td></tr>`).join("");
+  const fmRows=M.four_month.rows.map(r=>`<tr><td><span class="tick">${r.ticker}</span></td>
+    <td>${r.stage}</td><td>${r.note}</td><td>${r.weeks_since_high}W</td></tr>`).join("")
+    || `<tr><td colspan="4" style="color:var(--muted)">Keine Schwergewichte auffällig.</td></tr>`;
+  const pdr=M.price_dividend;
+  const pdBlock=pdr?`<div class="panel"><h3>Preis / Dividende (S&amp;P via SPY)</h3>
+      <div style="font:700 22px 'Space Grotesk',sans-serif">${fmt(pdr.ratio,1)}
+        <span style="font:400 13px 'IBM Plex Mono';color:var(--muted)">
+        · Rendite ${fmt(pdr.yield_pct,2)}% · ${fmt(pdr.percentile,0)}. Perzentil der eigenen Historie</span></div>
+      ${spark(pdr.spark,"var(--mrs)",320,40)}
+      <div class="chk" style="margin-top:8px">Weinsteins absolute Schwellen (&lt;15 billig, &gt;26 teuer) stammen aus der Zeit vor Aktienrückkäufen. Seit den 1990ern liegt das Verhältnis dauerhaft über 26 — die Kennzahl zeigt seither permanent „teuer" und hat als Timing-Signal praktisch keinen Wert mehr. Nur das Perzentil gegen die eigene Historie ist noch lesbar. <b>Fließt bewusst nicht in den Score ein.</b></div>
+    </div>`:`<div class="panel"><h3>Preis / Dividende</h3><div class="chk">Keine Dividendendaten abrufbar.</div></div>`;
+
+  return `<div class="gauge">
+      <h2 class="${cls(M.score)}">${M.score>0?"+":""}${fmt(M.score,0)}</h2>
+      <div class="lbl">${M.label} · gewichteter Verbund aus ${M.components.length} Komponenten · Breite über ${M.breadth_universe} US-Titel</div>
+      <div class="track"><div class="needle" style="left:${pos}%"></div></div>
+      <div class="ends"><span>−100 · näher am Top</span><span>0 · Zyklusmitte</span><span>+100 · näher am Boden</span></div>
+    </div>
+    <p class="note"><b>Lesart:</b> Dieser Tab ist mean-revertierend (Zyklusposition), der Rest des Screeners trendfolgend (Einstiege). Sie werden sich widersprechen — das ist beabsichtigt. Weinstein nutzte den Makro-Blick zur <b>Steuerung der Gesamtexponierung</b>, nicht für einzelne Entries.</p>
+    <div class="panel"><h3>Komponenten</h3>
+      <table><thead><tr><th>Indikator</th><th>Wert</th><th>Score</th><th>Beitrag</th></tr></thead>
+      <tbody>${compRows}</tbody></table></div>
+    <div class="panel"><h3>Stage-Verteilung des US-Universums</h3>
+      <div class="sd">
+        <div class="s1" style="width:${sd[1]}%">${sd[1]>6?"S1 "+sd[1]+"%":""}</div>
+        <div class="s2" style="width:${sd[2]}%">${sd[2]>6?"S2 "+sd[2]+"%":""}</div>
+        <div class="s3" style="width:${sd[3]}%">${sd[3]>6?"S3 "+sd[3]+"%":""}</div>
+        <div class="s4" style="width:${sd[4]}%">${sd[4]>6?"S4 "+sd[4]+"%":""}</div>
+      </div>
+      <div class="chk">S1 Basis · S2 Aufwärts · S3 Topping · S4 Abwärts${M.eu_breadth!=null?` &nbsp;|&nbsp; Europa: ${fmt(M.eu_breadth,0)}% über dem eigenen 30W-MA`:""}</div></div>
+    <div class="panel"><h3>Marktbreite · 2 Jahre</h3>
+      <div class="chartwrap">
+        <div><div class="chk">S&amp;P 500</div>${spark(M.spark_spx,"var(--ink)",260,54)}</div>
+        <div><div class="chk">A/D-Linie (kumuliert)</div>${spark(M.spark_ad,"var(--mrs)",260,54)}</div>
+        <div><div class="chk">High-Low-Differential %</div>${spark(M.spark_hl,"var(--flag)",260,54)}</div>
+        <div><div class="chk">% über 30W-MA</div>${spark(M.spark_above,"var(--long)",260,54)}</div>
+      </div>
+      <div class="chk" style="margin-top:8px">Divergenz-Prüfung: neues Index-Hoch ohne neues A/D-Hoch = Top-Warnung. Am Boden dreht die A/D-Linie laut Weinstein <b>nicht</b> früher — dort ist ihr Fehlen kein Signal.</div></div>
+    <div class="panel"><h3>Weltmärkte — laufen den USA oft voraus</h3>
+      <table><thead><tr><th>Index</th><th>Name</th><th>Stage</th><th>vs 30W</th><th>Slope</th><th>MRS vs SPX</th><th>52W</th></tr></thead>
+      <tbody>${worldRows}</tbody></table></div>
+    <div class="panel"><h3>4-Monats-Regel · Top-50 nach Liquidität</h3>
+      <table><thead><tr><th>Ticker</th><th>Stage</th><th>Befund</th><th>seit Hoch</th></tr></thead>
+      <tbody>${fmRows}</tbody></table>
+      <div class="chk" style="margin-top:8px">Kein neues Hoch seit 4 Monaten im Aufwärtstrend (bzw. kein neues Tief im Abwärtstrend) = Trendwende wahrscheinlich. „Groß" ist hier über das Median-Dollarvolumen angenähert, nicht über Marktkapitalisierung.</div></div>
+    ${pdBlock}
+    <div class="panel"><h3>Medien-Kontraindikation — manuell</h3>
+      <div class="chk">Nicht automatisierbar, ohne Objektivität vorzutäuschen. Weinstein liest sie mit dem Kopf; diese Fragen einmal pro Monat selbst beantworten:<br>
+      · <b>Titelseiten:</b> Erscheint der Markt in Publikumsmedien (nicht Fachpresse) auf Titelseiten? Euphorisch oder apokalyptisch?<br>
+      · <b>Neue Erklärungen:</b> Wird ein dauerhaft neues Regime behauptet („diesmal ist es anders", „Zyklus ist tot")?<br>
+      · <b>Umfeld:</b> Reden Menschen ohne Marktbezug ungefragt über Aktien — oder sagen sie, Aktien seien Zockerei?<br>
+      · <b>Deine eigene Reaktion:</b> Fühlt sich Kaufen mühelos an oder unmöglich? Das ist der ehrlichste Indikator.</div></div>`;
+}
+
 const L12=D.long.filter(r=>r.signal_type==="breakout"||r.signal_type==="pre_breakout");
 const LPB=D.long.filter(r=>r.signal_type==="pullback");
 const LBL=D.long.filter(r=>r.signal_type==="base_low");
 const TABS=[
+ {id:"macro",label:`MARKTLAGE${D.macro?" · "+(D.macro.score>0?"+":"")+Math.round(D.macro.score):""}`,
+  render:()=>macroPanel()},
  {id:"stage12",label:`LONG · Stage 1→2 (${L12.length})`,
   render:()=>`<p class="note"><b>Breakout</b>: Ausbruch auf 26W-Hoch aus valider Basis, max. 20% über Basis-Top, Volumen ≥ 1,5× in einer der letzten 4 Wochen. <b>PRE-BO</b>: noch in der Basis, ≤ 5% unter dem Range-Hoch, MA flach, RS positiv oder klar verbessernd — Kandidaten vor dem Pivot.</p>`+
    table(L12,sigCols,r=>mansfieldPanel(r))},
@@ -242,6 +325,7 @@ function show(id){
   m.querySelectorAll("th").forEach(th=>th.addEventListener("click",()=>{
     const tabRows={stage12:L12,stage2:LPB,baselow:LBL,short:D.short,sectors:D.sectors,watch:D.watchlists}[id];
     const colsets={stage12:sigCols,stage2:sigCols,baselow:sigCols,short:sigCols,sectors:secCols,watch:wlCols};
+    if(!tabRows||!colsets[id])return;
     const i=+th.dataset.i, col=colsets[id][i];
     const prev=sortState[id];
     const dir=(prev&&prev.col===i&&prev.dir==="desc")?"asc":"desc";
@@ -265,7 +349,7 @@ const nav=document.getElementById("tabs");
 TABS.forEach((t,i)=>{const b=document.createElement("button");
   b.textContent=t.label;b.dataset.id=t.id;
   b.addEventListener("click",()=>show(t.id));nav.appendChild(b);});
-show("stage12");
+show("macro");
 </script>
 </body>
 </html>
