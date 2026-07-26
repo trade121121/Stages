@@ -233,12 +233,15 @@ def evaluate(ticker: str, name: str, universe: str,
     )
     if short_ok:
         vol_bonus = np.isfinite(vr) and vr >= C.SHORT_VOL_BONUS_RATIO
+        ext_below = (s - c) / s                     # how far below the MA already
         score = (
             min(abs(m), 15.0) * 0.3                 # RS weakness
             + (3.0 if div else 0.0)                 # RS broke before price
             + min(abs(sl) * 100, 5.0)               # MA rollover severity
             + (2.0 if vol_bonus else 0.0)           # volume = bonus, not filter
-        )
+            - min(ext_below, 0.30) * 14.0           # extended breaks rank LOWER:
+        )                                           # the stop sits above the MA,
+        #                                             so distance = risk
         sc, ss, sm = _sparks(close, sma, mrs)
         return Signal(ticker, name, universe, "short", c, s, sl, m, fresh,
                       vr if np.isfinite(vr) else float("nan"),
