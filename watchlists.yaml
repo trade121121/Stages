@@ -4,12 +4,30 @@ watchlists:
   - name: AI-Infra
     local_benchmark: "^GSPC"
     theme_benchmark: "SOXX"
-    tickers: [WULF, HUT, APLD, HIVE, FCEL, BE, GEV, VRT, IREN, CIFR]
+    tickers: [WULF, HUT, APLD, HIVE, FCEL, BE, GEV, VRT, IREN, CIFR, NBIS]
 
   - name: Memory
     local_benchmark: "^GSPC"
     theme_benchmark: "SMH"
     tickers: [MU, SNDK, WDC, STX, SKHY]
+
+  # Photonik / Compound-Semis — der optische Layer unter dem AI-Rechenzentrum.
+  # Beide Listen nutzen SOXX als Themen-Benchmark, damit die Themen-MRS
+  # zwischen EU- und US-Namen direkt vergleichbar bleibt.
+  - name: Photonik-Compound-EU
+    local_benchmark: "^STOXX"
+    theme_benchmark: "SOXX"
+    # SOI.PA = Soitec (Euronext Paris). Achtung: "SOI" allein ist an US-Boersen
+    # Solaris Energy Infrastructure — ein voellig anderes Unternehmen.
+    tickers: ["SOI.PA", "SIVE.ST", "IQE.L"]
+
+  - name: Photonik-Compound-US
+    local_benchmark: "^GSPC"
+    theme_benchmark: "SOXX"
+    # WOLF: Kursreihe laeuft durch die Chapter-11-Reorganisation 2025 hindurch
+    # -> Stage- und MRS-Werte erst belastbar, wenn 52 Wochen nach Emergence
+    # vorliegen. Bis dahin Signale dieses Tickers manuell gegenpruefen.
+    tickers: [WOLF, AAOI, AXTI, POET]
 
   - name: Software-Truemmer
     local_benchmark: "^GSPC"
