@@ -58,6 +58,7 @@ def evaluate(ticker: str, name: str, universe: str,
     c, s, sl, m = float(close.iloc[-1]), float(sma.iloc[-1]), \
         float(slope.iloc[-1]), float(mrs.iloc[-1])
     vr = I.volume_ratio(vol)
+    zone = I.zone_width(I.atr_pct(weekly), C.ZONE_ATR_MULT, C.ZONE_MIN, C.ZONE_MAX)
     volr_series = vol / vol.shift(1).rolling(C.VOL_AVG_WEEKS).mean()
     vol_confirmed = bool(
         np.isfinite(volr_series.iloc[-C.BREAKOUT_VOL_LOOKBACK:]).any()
@@ -124,12 +125,12 @@ def evaluate(ticker: str, name: str, universe: str,
         and m > 0
         and hi13 >= hi26 * 0.999                  # the high is recent
         and c <= hi13 * (1 - C.PB_MIN_OFF_HIGH)   # actually pulled back
-        and ext_over_ma <= C.PB_MAX_EXT_OVER_MA   # inside the buy zone
+        and ext_over_ma <= zone                   # inside the buy zone
     )
     if pullback_ok:
         vol_dry = np.isfinite(vr) and vr < 1.0    # volume drying up = healthy
         score = (
-            (C.PB_MAX_EXT_OVER_MA - ext_over_ma) * 60.0   # closer to MA = better
+            (1.0 - ext_over_ma / zone) * 5.0              # closer to MA = better
             + min(m, 15.0) * 0.25
             + (2.0 if fresh else 0.0)
             + (2.0 if vol_dry else 0.0)
@@ -239,7 +240,7 @@ def evaluate(ticker: str, name: str, universe: str,
             + (3.0 if div else 0.0)                 # RS broke before price
             + min(abs(sl) * 100, 5.0)               # MA rollover severity
             + (2.0 if vol_bonus else 0.0)           # volume = bonus, not filter
-            - min(ext_below, 0.30) * 14.0           # extended breaks rank LOWER:
+            - min(ext_below / max(zone, 0.01), 3.0) * 1.6   # extended = lower rank:
         )                                           # the stop sits above the MA,
         #                                             so distance = risk
         sc, ss, sm = _sparks(close, sma, mrs)
@@ -260,13 +261,13 @@ def evaluate(ticker: str, name: str, universe: str,
         and m < 0
         and lo13 <= lo26 * 1.001                      # fresh weakness on record
         and c >= lo13 * (1 + C.SR_MIN_OFF_LOW)        # actually rallied
-        and (s - c) / s <= C.SR_MAX_BELOW_MA          # inside the short zone
+        and (s - c) / s <= zone                       # inside the short zone
         and retrace <= C.SHORT_RALLY_MAX_RETRACE
         and I.prior_markup(close)
     )
     if rally_ok:
         score = (
-            (C.SR_MAX_BELOW_MA - (s - c) / s) * 60.0  # closer to MA = better
+            (1.0 - ((s - c) / s) / zone) * 5.0        # closer to MA = better
             + min(abs(m), 15.0) * 0.3
             + (3.0 if div else 0.0)
             + min(abs(sl) * 100, 4.0)
