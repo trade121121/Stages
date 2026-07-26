@@ -123,6 +123,8 @@ def run() -> None:
     try:
         macro = market.compute(weekly, uni, benches)
         log.info("macro score %.1f (%s)", macro["score"], macro["label"])
+        macro["history"] = market.log_history(
+            macro, os.path.join(root, C.OUTPUT_DIR, "macro_history.csv"))
     except Exception as exc:  # noqa: BLE001
         log.warning("macro module failed: %r", exc)
         macro = None
