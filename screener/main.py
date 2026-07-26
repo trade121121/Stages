@@ -8,7 +8,7 @@ import numpy as np
 import yaml
 
 from . import config as C
-from . import constituents, data, scanner
+from . import constituents, data, market, scanner
 from .indicators import mansfield_rs
 
 logging.basicConfig(level=logging.INFO,
@@ -43,7 +43,8 @@ def run() -> None:
     theme_syms = {wl.get("theme_benchmark") for wl in wl_cfg.get("watchlists", [])
                   if wl.get("theme_benchmark")}
     all_syms = (list(uni["ticker"]) + wl_tickers + list(C.SECTOR_ETFS)
-                + list(bench_syms) + list(theme_syms))
+                + list(bench_syms) + list(theme_syms)
+                + list(C.WORLD_INDICES) + [C.PD_PROXY])
     all_syms = list(dict.fromkeys(all_syms))
 
     # ------------------------------------------------ data ---------------
@@ -52,6 +53,9 @@ def run() -> None:
 
     benches = {s: weekly[s]["close"] for s in bench_syms | theme_syms
                if s in weekly}
+    for s in C.WORLD_INDICES:
+        if s in weekly:
+            benches.setdefault(s, weekly[s]["close"])
     if C.BENCH_US not in benches:
         raise SystemExit("S&P 500 benchmark data missing — aborting")
 
@@ -115,11 +119,21 @@ def run() -> None:
     for s in longs + shorts:
         s.sector_mrs = theme_of_universe.get(s.universe)
 
+    # ------------------------------------------------ macro gauges -------
+    try:
+        macro = market.compute(weekly, uni, benches)
+        log.info("macro score %.1f (%s)", macro["score"], macro["label"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("macro module failed: %r", exc)
+        macro = None
+        issues.append(f"Marktlage-Modul fehlgeschlagen: {exc!r}")
+
     # ------------------------------------------------ render -------------
     from . import dashboard
     stats = {"tickers": len(uni), "failed": len(failed)}
     issues += [f"no data: {t}" for t in failed[:60]]
-    html = dashboard.render(longs, shorts, sectors, wl_rows, issues, stats)
+    html = dashboard.render(longs, shorts, sectors, wl_rows, issues, stats,
+                            macro)
     out = os.path.join(root, C.OUTPUT_DIR, "index.html")
     with open(out, "w", encoding="utf-8") as fh:
         fh.write(html)
