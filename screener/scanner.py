@@ -222,13 +222,13 @@ def evaluate(ticker: str, name: str, universe: str,
 
     # ---------------------------------------------------------- SHORT -----
     div = I.bearish_divergence(close, mrs)
-    hi52 = close.iloc[-52:].max()
+    retrace = I.markup_retrace(close)
     short_ok = (
         c < s
         and sl <= 0
         and m < 0
         and is_26w_low
-        and c >= hi52 * (1 - C.SHORT_MAX_OFF_HIGH)   # fresh break, no waterfall
+        and retrace <= C.SHORT_MAX_RETRACE        # early in the unwind
         and I.prior_markup(close)
     )
     if short_ok:
@@ -258,6 +258,7 @@ def evaluate(ticker: str, name: str, universe: str,
         and lo13 <= lo26 * 1.001                      # fresh weakness on record
         and c >= lo13 * (1 + C.SR_MIN_OFF_LOW)        # actually rallied
         and (s - c) / s <= C.SR_MAX_BELOW_MA          # inside the short zone
+        and retrace <= C.SHORT_RALLY_MAX_RETRACE
         and I.prior_markup(close)
     )
     if rally_ok:
