@@ -75,7 +75,12 @@ BL_MAX_ENTRY_SLOPE = 0.01         # MA slope on APPROACH to the range (26-52w
                                   # decline (Stage 1), not a top after a markup
 
 # Long pullback entry (Stage 2 continuation: retest of rising 30W MA)
-PB_MAX_EXT_OVER_MA = 0.08         # buy zone: within 8% above the 30W MA
+# Zones scale with each stock's own weekly ATR instead of a fixed percentage.
+# A 50% topping range is normal in a 15%-ATR name and absurd in a utility.
+ZONE_ATR_MULT = 2.0               # zone width = 2x average weekly true range
+ZONE_MIN = 0.04                   # ... clamped between 4% ...
+ZONE_MAX = 0.18                   # ... and 18%
+PB_MAX_EXT_OVER_MA = 0.08         # fallback if ATR is unavailable
 PB_MIN_OFF_HIGH = 0.03            # pulled back at least 3% from recent high
 PB_MIN_SLOPE = 0.005              # MA must be clearly rising
 PB_HIGH_WINDOW = 13               # 26w high must have been made in last N weeks
