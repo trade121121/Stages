@@ -1,8 +1,10 @@
 """Entry point: fetch universes -> download weekly data -> scan -> dashboard."""
 from __future__ import annotations
 
+import json
 import logging
 import os
+from datetime import datetime, timezone
 
 import numpy as np
 import yaml
@@ -81,6 +83,37 @@ def run() -> None:
                                weekly[t], bench)
         if sig:
             (longs if sig.side == "long" else shorts).append(sig)
+
+    # ---- mark what is NEW versus previous runs -------------------------
+    hist_path = os.path.join(root, C.OUTPUT_DIR, "signals_history.json")
+    runs = []
+    if os.path.exists(hist_path):
+        try:
+            with open(hist_path, encoding="utf-8") as fh:
+                runs = json.load(fh)
+        except Exception:  # noqa: BLE001
+            runs = []
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    runs = [r for r in runs if r.get("date") != today]
+
+    prev = runs[-1]["signals"] if runs else {}
+    for sig in longs + shorts:
+        sig.is_new = prev.get(sig.ticker) != sig.signal_type
+        n = 1
+        for run in reversed(runs):
+            if run.get("signals", {}).get(sig.ticker) == sig.signal_type:
+                n += 1
+            else:
+                break
+        sig.weeks_on_list = n
+
+    runs.append({"date": today,
+                 "signals": {s.ticker: s.signal_type for s in longs + shorts}})
+    runs = runs[-C.SIGNAL_HISTORY_RUNS:]
+    with open(hist_path, "w", encoding="utf-8") as fh:
+        json.dump(runs, fh)
+    log.info("neu diese Woche: %d von %d Signalen",
+             sum(1 for s in longs + shorts if s.is_new), len(longs) + len(shorts))
 
     longs.sort(key=lambda s: -s.score)
     shorts.sort(key=lambda s: -s.score)
