@@ -32,6 +32,8 @@ class Signal:
     spark_mrs: list = field(default_factory=list)
     sector_mrs: float | None = None
     signal_type: str = "breakout"     # "breakout" | "pullback" | "breakdown"
+    is_new: bool = True               # not on last week's list for this type
+    weeks_on_list: int = 1            # consecutive runs with the same signal
 
 
 def _sparks(close: pd.Series, sma: pd.Series, mrs: pd.Series, n: int = 52):
