@@ -106,6 +106,17 @@ svg text{font:10px "IBM Plex Mono",monospace;fill:var(--muted)}
 .panel h3{font:600 12px "IBM Plex Mono";text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px}
 .chk{font-size:12px;line-height:1.9;color:var(--muted)}
 .chk b{color:var(--ink)}
+.flagcell{cursor:pointer;user-select:none;text-align:center;width:26px;font-size:15px;line-height:1}
+.fl-buy{color:var(--long)} .fl-short{color:var(--short)} .fl-skip{color:var(--muted)}
+.fl-none{color:var(--grid)}
+.filterbar{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap;align-items:center}
+.filterbar button{font:600 11px "IBM Plex Mono",monospace;background:var(--panel);
+  border:1px solid var(--grid);padding:5px 10px;cursor:pointer;color:var(--muted);border-radius:2px}
+.filterbar button.on{border-color:var(--ink);color:var(--ink);background:#EFEEE6}
+.filterbar .sep{flex:1}
+.filterbar .reset{border-style:dashed}
+.badge.neu{color:var(--mrs);border-color:var(--mrs);font-weight:600}
+tr.reviewed td{opacity:.5}
 @media(max-width:720px){main,header,nav{padding-left:12px;padding-right:12px}
   td,th{padding:6px 6px;font-size:12px}}
 </style>
@@ -120,6 +131,30 @@ svg text{font:10px "IBM Plex Mono",monospace;fill:var(--muted)}
 <script>
 const D = __DATA__;
 const sortState = {};   // {tabId: {col, dir}} — ueberlebt Re-Renders
+
+/* ---------- Markierungen (Browser-lokal, ueberleben Wochenlaeufe) ------- */
+const FLAGS_KEY="weinstein_flags_v1", SKIP_DAYS=56;
+function loadFlags(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(FLAGS_KEY)||"{}"), now=Date.now(), out={};
+    for(const [t,v] of Object.entries(raw)){
+      if(v.s==="skip" && now-v.t > SKIP_DAYS*864e5) continue;   // × laeuft ab
+      out[t]=v;
+    }
+    return out;
+  }catch(e){ return {}; }
+}
+function saveFlags(){ try{ localStorage.setItem(FLAGS_KEY,JSON.stringify(FLAGS)); }catch(e){} }
+let FLAGS=loadFlags();
+const FLAG_ICON={buy:"\u2691",short:"\u2691",skip:"\u00D7","":"\u00B7"};
+const FLAG_CLS={buy:"fl-buy",short:"fl-short",skip:"fl-skip","":"fl-none"};
+function flagOf(t){ return (FLAGS[t]||{}).s || ""; }
+function cycleFlag(t){
+  const order=["","buy","short","skip"], nxt=order[(order.indexOf(flagOf(t))+1)%4];
+  if(nxt==="") delete FLAGS[t]; else FLAGS[t]={s:nxt,t:Date.now()};
+  saveFlags();
+}
+let filterMode="offen";   // alle | neu | offen | buy | short
 const fmt=(v,d=2)=>v==null||Number.isNaN(v)?"–":Number(v).toFixed(d);
 const cls=v=>v>0?"pos":v<0?"neg":"";
 
@@ -165,18 +200,47 @@ function mansfieldPanel(s){
 
 /* ---------- tables ---------- */
 function table(rows,cols,detail){
-  if(!rows.length)return `<div class="empty">Keine Treffer diese Woche.</div>`;
+  if(!rows.length)return `<div class="empty">Keine Treffer in dieser Ansicht.</div>`;
   let html=`<table><thead><tr>`+cols.map((c,i)=>
     `<th data-i="${i}">${c.h} <span class="arr"></span></th>`).join("")+`</tr></thead><tbody>`;
   rows.forEach((r,ri)=>{
-    html+=`<tr class="row" data-ri="${ri}">`+cols.map(c=>`<td>${c.f(r)}</td>`).join("")+`</tr>`;
-    if(detail)html+=`<tr class="detail" data-ri="${ri}" style="display:none">
+    const key=r.ticker||("r"+ri), fl=r.ticker?flagOf(r.ticker):"";
+    html+=`<tr class="row${fl==="skip"?" reviewed":""}" data-k="${key}">`+
+      cols.map(c=>`<td>${c.f(r)}</td>`).join("")+`</tr>`;
+    if(detail)html+=`<tr class="detail" data-k="${key}" style="display:none">
       <td colspan="${cols.length}"><div class="chartwrap">${detail(r)}</div></td></tr>`;
   });
   return html+`</tbody></table>`;
 }
+function applyFilter(rows){
+  return rows.filter(r=>{
+    const f=flagOf(r.ticker);
+    if(filterMode==="alle")   return true;
+    if(filterMode==="neu")    return r.is_new && f!=="skip";
+    if(filterMode==="offen")  return f==="";
+    if(filterMode==="buy")    return f==="buy";
+    if(filterMode==="short")  return f==="short";
+    return true;
+  });
+}
+function filterBar(rows,id){
+  const n=m=>{const s=filterMode; filterMode=m; const c=applyFilter(rows).length; filterMode=s; return c;};
+  const b=(m,l)=>`<button data-fm="${m}" class="${filterMode===m?"on":""}">${l} ${n(m)}</button>`;
+  return `<div class="filterbar">${b("offen","offen")}${b("neu","neu")}
+    ${b("buy","\u2691 kauf")}${b("short","\u2691 short")}${b("alle","alle")}
+    <span class="sep"></span>
+    <button class="reset" data-reset="1">Markierungen zurücksetzen</button></div>
+    <div class="chk" style="margin:-6px 0 12px">Klick auf das Zeichen links markiert:
+    · → <span class="fl-buy">⚑ Kauf</span> → <span class="fl-short">⚑ Short</span> →
+    <span class="fl-skip">× erledigt</span> → ·  &nbsp;|&nbsp; „×" blendet den Wert aus
+    (läuft nach 8 Wochen automatisch ab). Markierungen liegen lokal in diesem Browser.</div>`;
+}
 const sigCols=[
+  {h:"",f:r=>{const s=flagOf(r.ticker);
+    return `<span class="flagcell ${FLAG_CLS[s]}" data-flag="${r.ticker}">${FLAG_ICON[s]}</span>`;},
+   k:r=>flagOf(r.ticker)||"zz"},
   {h:"Ticker",f:r=>`<span class="tick">${r.ticker}</span>`+
+    (r.is_new?`<span class="badge neu">NEU</span>`:"")+
     (r.signal_type==="pullback"?`<span class="badge pb">PULLBACK</span>`:"")+
     (r.signal_type==="pre_breakout"?`<span class="badge pb">PRE-BO</span>`:"")+
     (r.signal_type==="base_low"?`<span class="badge vol">BASE-LOW</span>`:"")+
@@ -192,6 +256,7 @@ const sigCols=[
   {h:"MRS",f:r=>`<span class="${cls(r.mrs)}">${fmt(r.mrs,1)}</span>`,k:r=>r.mrs},
   {h:"Vol ×",f:r=>fmt(r.vol_ratio,2),k:r=>r.vol_ratio},
   {h:"Basis W",f:r=>r.base_weeks,k:r=>r.base_weeks},
+  {h:"Wo. Liste",f:r=>r.weeks_on_list??1,k:r=>r.weeks_on_list??1},
   {h:"Sektor-MRS",f:r=>r.sector_mrs==null?"–":`<span class="${cls(r.sector_mrs)}">${fmt(r.sector_mrs,1)}</span>`,k:r=>r.sector_mrs??-99},
   {h:"Score",f:r=>`<b>${fmt(r.score,1)}</b>`,k:r=>r.score},
   {h:"52W",f:r=>spark(r.spark_close,"var(--ink)"),k:r=>0},
@@ -291,21 +356,23 @@ function macroPanel(){
 const L12=D.long.filter(r=>r.signal_type==="breakout"||r.signal_type==="pre_breakout");
 const LPB=D.long.filter(r=>r.signal_type==="pullback");
 const LBL=D.long.filter(r=>r.signal_type==="base_low");
+const nNew=a=>a.filter(r=>r.is_new).length;
+const lbl=(t,a)=>`${t} (${a.length}${nNew(a)?" · "+nNew(a)+" neu":""})`;
 const TABS=[
  {id:"macro",label:`MARKTLAGE${D.macro?" · "+(D.macro.score>0?"+":"")+Math.round(D.macro.score):""}`,
   render:()=>macroPanel()},
- {id:"stage12",label:`LONG · Stage 1→2 (${L12.length})`,
+ {id:"stage12",label:lbl("LONG · Stage 1→2",L12),
   render:()=>`<p class="note"><b>Breakout</b>: Ausbruch auf 26W-Hoch aus valider Basis, max. 20% über Basis-Top, Volumen ≥ 1,5× in einer der letzten 4 Wochen. <b>PRE-BO</b>: noch in der Basis, ≤ 5% unter dem Range-Hoch, MA flach, RS positiv oder klar verbessernd — Kandidaten vor dem Pivot.</p>`+
-   table(L12,sigCols,r=>mansfieldPanel(r))},
- {id:"stage2",label:`LONG · Stage-2-Pullback (${LPB.length})`,
+   filterBar(L12,"stage12")+table(applyFilter(L12),sigCols,r=>mansfieldPanel(r))},
+ {id:"stage2",label:lbl("LONG · Stage-2-Pullback",LPB),
   render:()=>`<p class="note">Stage 2 bestätigt: Retest ≤ 8% über steigendem 30W-MA nach frischem 26W-Hoch. VOL-Flag = Volumen trocknet im Rücksetzer aus (gesund). Stop-Logik: Wochenschluss unter dem 30W-MA.</p>`+
-   table(LPB,sigCols,r=>mansfieldPanel(r))},
- {id:"baselow",label:`BASIS-TIEF (${LBL.length})`,
+   filterBar(LPB,"stage2")+table(applyFilter(LPB),sigCols,r=>mansfieldPanel(r))},
+ {id:"baselow",label:lbl("BASIS-TIEF",LBL),
   render:()=>`<p class="note">Akkumulations-Range-Einstieg: gereifte Basis, Kurs im unteren Drittel der 26W-Range, Tief ≥ 8 Wochen alt, <b>MRS über 8 Wochen steigend</b> (Akkumulations-Beweis). Stop-Logik: unter dem Range-Tief. Kein Weinstein-Signal — Location-Edge mit RS-Filter.</p>`+
-   table(LBL,sigCols,r=>mansfieldPanel(r))},
- {id:"short",label:`SHORT · Stage 3→4 (${D.short.length})`,
+   filterBar(LBL,"baselow")+table(applyFilter(LBL),sigCols,r=>mansfieldPanel(r))},
+ {id:"short",label:lbl("SHORT · Stage 3→4",D.short),
   render:()=>`<p class="note"><b>Breakdown</b>: frischer Bruch auf 26W-Tief, max. 40% unter dem 52W-Hoch (keine Wasserfall-Fortsetzung), Kurs &lt; kippendem 30W-MA, vorheriger Stage-2-Markup. <b>RALLY</b>: etablierter Abwärtstrend, Kurs ≤ 8% unter fallendem 30W-MA nach Erholung vom Tief — die Weinstein-Short-Zone. Beide: MRS &lt; 0.</p>`+
-   table(D.short,sigCols,r=>mansfieldPanel(r))},
+   filterBar(D.short,"short")+table(applyFilter(D.short),sigCols,r=>mansfieldPanel(r))},
  {id:"sectors",label:"SEKTOR-ROTATION",
   render:()=>`<p class="note">Mansfield RS aller Sektor-/Themen-ETFs gegen SPX. Δ 4W = Momentum der relativen Stärke — die Wachablösung zeigt sich hier zuerst.</p>`+
    table(D.sectors,secCols,null)},
@@ -318,8 +385,21 @@ function show(id){
   const t=TABS.find(t=>t.id===id);
   const m=document.getElementById("main");
   m.innerHTML=t.render()+issuesBlock();
-  m.querySelectorAll("tr.row").forEach(tr=>tr.addEventListener("click",()=>{
-    const d=m.querySelector(`tr.detail[data-ri="${tr.dataset.ri}"]`);
+  m.querySelectorAll("[data-flag]").forEach(el=>el.addEventListener("click",ev=>{
+    ev.stopPropagation(); cycleFlag(el.dataset.flag); show(id);
+  }));
+  m.querySelectorAll("[data-fm]").forEach(el=>el.addEventListener("click",()=>{
+    filterMode=el.dataset.fm; show(id);
+  }));
+  const rs=m.querySelector("[data-reset]");
+  if(rs)rs.addEventListener("click",()=>{
+    if(confirm("Alle Markierungen in diesem Browser löschen?")){
+      FLAGS={}; saveFlags(); show(id);
+    }
+  });
+  m.querySelectorAll("tr.row").forEach(tr=>tr.addEventListener("click",ev=>{
+    if(ev.target.closest("[data-flag]"))return;
+    const d=m.querySelector(`tr.detail[data-k="${tr.dataset.k}"]`);
     if(d)d.style.display=d.style.display==="none"?"":"none";
   }));
   // Sortierpfeile aus persistentem Zustand wiederherstellen
@@ -333,6 +413,7 @@ function show(id){
     const colsets={stage12:sigCols,stage2:sigCols,baselow:sigCols,short:sigCols,sectors:secCols,watch:wlCols};
     if(!tabRows||!colsets[id])return;
     const i=+th.dataset.i, col=colsets[id][i];
+    if(!col||!col.k)return;
     const prev=sortState[id];
     const dir=(prev&&prev.col===i&&prev.dir==="desc")?"asc":"desc";
     sortState[id]={col:i,dir};
