@@ -133,3 +133,4 @@ ISHARES_STOXX600_CSV = (
 )
 
 OUTPUT_DIR = "docs"
+SIGNAL_HISTORY_RUNS = 12          # how many past runs to keep for "new" flags
