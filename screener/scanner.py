@@ -232,7 +232,7 @@ def evaluate(ticker: str, name: str, universe: str,
         and m < 0
         and is_26w_low
         and retrace <= C.SHORT_MAX_RETRACE        # early in the unwind
-        and I.prior_markup(close)
+        and I.prior_markup(close, sma)
     )
     if short_ok:
         vol_bonus = np.isfinite(vr) and vr >= C.SHORT_VOL_BONUS_RATIO
@@ -265,7 +265,7 @@ def evaluate(ticker: str, name: str, universe: str,
         and c >= lo13 * (1 + C.SR_MIN_OFF_LOW)        # actually rallied
         and (s - c) / s <= zone                       # inside the short zone
         and retrace <= C.SHORT_RALLY_MAX_RETRACE
-        and I.prior_markup(close)
+        and I.prior_markup(close, sma)
     )
     if rally_ok:
         score = (
