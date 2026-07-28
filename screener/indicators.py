@@ -88,19 +88,44 @@ def base_volatility(close: pd.Series, window: int = 26) -> float:
     return float(w.max() / w.min() - 1.0)
 
 
-def prior_markup(close: pd.Series, factor: float = C.SHORT_MIN_PRIOR_MARKUP) -> bool:
-    """A Stage-2 markup happened within the last ~2 years: somewhere in that
-    window the price rose >= factor from a preceding low to a later high.
-    Filters perpetual Stage-4 losers out of the short scan."""
+def prior_markup(close: pd.Series, sma: pd.Series | None = None,
+                 factor: float = C.SHORT_MIN_PRIOR_MARKUP) -> bool:
+    """Did a genuine Stage-2 markup precede the current weakness?
+
+    Ratio alone is not enough: a stock oscillating in a wide range clears
+    1.5x from range low to range high without ever having trended. A real
+    markup also (a) takes time and (b) keeps price above a rising 30W MA for
+    most of its duration. Both are checked when `sma` is supplied."""
     lb = min(len(close), C.SHORT_MARKUP_LOOKBACK)
     if lb < 60:
         return False
-    w = close.iloc[-lb:].values
-    i_max = int(np.argmax(w))
+    win = close.iloc[-lb:]
+    v = win.values
+    i_max = int(np.argmax(v))
     if i_max < 4:                       # high sits at the very start: no markup
         return False
-    low_before = w[:i_max].min()
-    return bool(low_before > 0 and w[i_max] / low_before >= factor)
+    i_low = int(np.argmin(v[:i_max]))
+    low, high = float(v[i_low]), float(v[i_max])
+    if low <= 0 or high / low < factor:
+        return False
+    if i_max - i_low < C.SHORT_MARKUP_MIN_WEEKS:      # spike, not a markup
+        return False
+    # New ground: within a range, an up-leg looks exactly like a markup — same
+    # slope, same time above the MA. The difference is that the range high is a
+    # level the stock has traded at before, while a markup high is not.
+    if i_low >= 10:
+        prior_high = float(v[:i_low].max())
+        if prior_high > 0 and high / prior_high < C.SHORT_MARKUP_NEW_GROUND:
+            return False
+    if sma is not None:
+        seg_c = win.iloc[i_low:i_max + 1]
+        seg_s = sma.iloc[-lb:].iloc[i_low:i_max + 1]
+        ok = seg_s.notna()
+        if int(ok.sum()) >= 10:
+            above = float((seg_c[ok] > seg_s[ok]).mean())
+            if above < C.SHORT_MARKUP_MIN_ABOVE_MA:   # range, not a trend
+                return False
+    return True
 
 
 def bearish_divergence(close: pd.Series, mrs: pd.Series) -> bool:
