@@ -95,8 +95,19 @@ SHORT_VOL_BONUS_RATIO = 1.5       # volume on breakdown = bonus flag, NOT filter
 # space so the test is scale-aware: a stock that ran 40x and is down 52% has
 # retraced ~19% of its move, while one that ran 60% and is down 52% has given
 # back everything. Raw "% below the 52w high" cannot tell those apart.
-SHORT_MAX_RETRACE = 0.60          # fresh breakdown: max 60% of the markup gone
-SHORT_RALLY_MAX_RETRACE = 0.80    # rally entries may sit deeper in Stage 4
+SHORT_MAX_RETRACE = 0.50          # fresh breakdown: max 50% of the markup gone
+SHORT_RALLY_MAX_RETRACE = 0.55    # rally entries barely deeper — SAP/ADSK at
+                                  # ~70% retraced are late Stage 4, not 3->4
+
+# What counts as a prior MARKUP at all. Without these, a stock oscillating in
+# a wide range (Persimmon: 970-1600 = 1.65x) registers as "Stage 2 followed by
+# breakdown", which it is not.
+SHORT_MARKUP_MIN_WEEKS = 20       # a 1.5x move in a few weeks is a spike
+SHORT_MARKUP_MIN_ABOVE_MA = 0.65  # during a real markup price sits above the
+                                  # 30W MA most of the time; in a range ~50%
+SHORT_MARKUP_NEW_GROUND = 1.20    # the markup high must clear everything seen
+                                  # BEFORE its starting low by 20%. A range
+                                  # revisits old levels; a markup breaks out.
 
 # Short rally entry (Weinstein short: rally back to the DECLINING 30W MA)
 SR_MAX_BELOW_MA = 0.08            # within 8% below the falling MA
