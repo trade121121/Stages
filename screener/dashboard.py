@@ -106,6 +106,11 @@ svg text{font:10px "IBM Plex Mono",monospace;fill:var(--muted)}
 .panel h3{font:600 12px "IBM Plex Mono";text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px}
 .chk{font-size:12px;line-height:1.9;color:var(--muted)}
 .chk b{color:var(--ink)}
+.flagset{display:inline-flex;gap:4px;align-items:center}
+.fb{cursor:pointer;font-style:normal;font-size:14px;line-height:1;padding:1px 2px;
+    color:var(--grid);border-radius:2px}
+.fb:hover{color:var(--muted);background:#EFEEE6}
+.fb.on{font-weight:700}
 .flagcell{cursor:pointer;user-select:none;text-align:center;width:26px;font-size:15px;line-height:1}
 .fl-buy{color:var(--long)} .fl-short{color:var(--short)} .fl-skip{color:var(--muted)}
 .fl-none{color:var(--grid)}
@@ -149,9 +154,8 @@ let FLAGS=loadFlags();
 const FLAG_ICON={buy:"\u2691",short:"\u2691",skip:"\u00D7","":"\u00B7"};
 const FLAG_CLS={buy:"fl-buy",short:"fl-short",skip:"fl-skip","":"fl-none"};
 function flagOf(t){ return (FLAGS[t]||{}).s || ""; }
-function cycleFlag(t){
-  const order=["","buy","short","skip"], nxt=order[(order.indexOf(flagOf(t))+1)%4];
-  if(nxt==="") delete FLAGS[t]; else FLAGS[t]={s:nxt,t:Date.now()};
+function setFlag(t,s){            // gleiches Symbol nochmal = zuruecksetzen
+  if(flagOf(t)===s) delete FLAGS[t]; else FLAGS[t]={s:s,t:Date.now()};
   saveFlags();
 }
 let filterMode="offen";   // alle | neu | offen | buy | short
@@ -223,21 +227,34 @@ function applyFilter(rows){
     return true;
   });
 }
+function updateCounts(id){
+  const rows={stage12:L12,stage2:LPB,baselow:LBL,short:D.short}[id];
+  if(!rows)return;
+  document.querySelectorAll("[data-cnt]").forEach(el=>{
+    const save=filterMode; filterMode=el.dataset.cnt;
+    el.textContent=applyFilter(rows).length; filterMode=save;
+  });
+}
 function filterBar(rows,id){
   const n=m=>{const s=filterMode; filterMode=m; const c=applyFilter(rows).length; filterMode=s; return c;};
-  const b=(m,l)=>`<button data-fm="${m}" class="${filterMode===m?"on":""}">${l} ${n(m)}</button>`;
+  const b=(m,l)=>`<button data-fm="${m}" class="${filterMode===m?"on":""}">${l} `+
+    `<span class="cnt" data-cnt="${m}">${n(m)}</span></button>`;
   return `<div class="filterbar">${b("offen","offen")}${b("neu","neu")}
     ${b("buy","\u2691 kauf")}${b("short","\u2691 short")}${b("alle","alle")}
     <span class="sep"></span>
     <button class="reset" data-reset="1">Markierungen zurücksetzen</button></div>
-    <div class="chk" style="margin:-6px 0 12px">Klick auf das Zeichen links markiert:
-    · → <span class="fl-buy">⚑ Kauf</span> → <span class="fl-short">⚑ Short</span> →
-    <span class="fl-skip">× erledigt</span> → ·  &nbsp;|&nbsp; „×" blendet den Wert aus
-    (läuft nach 8 Wochen automatisch ab). Markierungen liegen lokal in diesem Browser.</div>`;
+    <div class="chk" style="margin:-6px 0 12px">Links pro Zeile:
+    <span class="fl-buy">⚑</span> Kauf-Kandidat · <span class="fl-short">⚑</span> Short-Kandidat ·
+    <span class="fl-skip">×</span> erledigt. Ein Klick setzt, derselbe Klick nochmal setzt zurück.
+    Markierte Zeilen bleiben stehen, bis du den Filter wechselst — „×" verschwindet dann aus
+    „offen" und läuft nach 8 Wochen automatisch ab. Markierungen liegen lokal in diesem Browser.</div>`;
 }
 const sigCols=[
   {h:"",f:r=>{const s=flagOf(r.ticker);
-    return `<span class="flagcell ${FLAG_CLS[s]}" data-flag="${r.ticker}">${FLAG_ICON[s]}</span>`;},
+    const ico=(v,ch,t)=>`<i class="fb${s===v?" on "+FLAG_CLS[v]:""}" data-set="${v}" title="${t}">${ch}</i>`;
+    return `<span class="flagset" data-tk="${r.ticker}">`+
+      ico("buy","\u2691","Kauf-Kandidat")+ico("short","\u2691","Short-Kandidat")+
+      ico("skip","\u00D7","erledigt / nicht relevant")+`</span>`;},
    k:r=>flagOf(r.ticker)||"zz"},
   {h:"Ticker",f:r=>`<span class="tick">${r.ticker}</span>`+
     (r.is_new?`<span class="badge neu">NEU</span>`:"")+
@@ -385,8 +402,17 @@ function show(id){
   const t=TABS.find(t=>t.id===id);
   const m=document.getElementById("main");
   m.innerHTML=t.render()+issuesBlock();
-  m.querySelectorAll("[data-flag]").forEach(el=>el.addEventListener("click",ev=>{
-    ev.stopPropagation(); cycleFlag(el.dataset.flag); show(id);
+  m.querySelectorAll("[data-set]").forEach(el=>el.addEventListener("click",ev=>{
+    ev.stopPropagation();
+    const cell=el.closest("[data-tk]"), tk=cell.dataset.tk;
+    setFlag(tk, el.dataset.set);
+    const s=flagOf(tk);
+    // gezielt diese Zelle aktualisieren — kein Re-Render, Zeile bleibt sichtbar
+    cell.querySelectorAll(".fb").forEach(fb=>{
+      fb.className = "fb" + (fb.dataset.set===s ? " on "+FLAG_CLS[s] : "");
+    });
+    const tr=el.closest("tr"); if(tr)tr.classList.toggle("reviewed", s==="skip");
+    updateCounts(id);
   }));
   m.querySelectorAll("[data-fm]").forEach(el=>el.addEventListener("click",()=>{
     filterMode=el.dataset.fm; show(id);
