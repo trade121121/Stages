@@ -20,7 +20,7 @@ import pandas as pd
 
 from . import config as C
 from . import indicators as I
-from .market import classify_stage, STAGE_NAME
+from .market import classify_stage, stage_of, STAGE_NAME
 
 
 def _chg(s: pd.Series, weeks: int) -> float:
@@ -39,6 +39,19 @@ def _diff(s: pd.Series, weeks: int) -> float:
     return float(s.iloc[-1] - s.iloc[-1 - weeks])
 
 
+def _dual(ratio: pd.Series, thr13: float, thr4: float) -> tuple[bool, str, float, float]:
+    """Change over 4 AND 13 weeks; active if EITHER crosses its threshold
+    (same sign as the thresholds). 4W reacts to sharp moves, 13W to slow
+    grinds. Returns (active, text, chg4, chg13)."""
+    c4, c13 = _chg(ratio, 4), _chg(ratio, 13)
+    neg = thr13 < 0
+    hit4 = np.isfinite(c4) and (c4 < thr4 if neg else c4 > thr4)
+    hit13 = np.isfinite(c13) and (c13 < thr13 if neg else c13 > thr13)
+    txt = (f"4W {c4:+.1f}% · 13W {c13:+.1f}%"
+           if np.isfinite(c4) and np.isfinite(c13) else "n/a")
+    return bool(hit4 or hit13), txt, c4, c13
+
+
 def _weeks_since_high(s: pd.Series, window: int = 52) -> int:
     w = s.dropna().iloc[-window:]
     if len(w) < 3:
@@ -48,10 +61,7 @@ def _weeks_since_high(s: pd.Series, window: int = 52) -> int:
 
 def _row(sym: str, wk: pd.DataFrame, is_yield: bool) -> dict:
     c = wk["close"]
-    sma = c.rolling(C.MA_WEEKS).mean()
-    sl = I.sma_slope(sma)
-    st = classify_stage(float(c.iloc[-1]), float(sma.iloc[-1]),
-                        float(sl.iloc[-1]))
+    st = stage_of(c)
     name, group = C.INTERMARKET[sym]
     if is_yield:
         c4, c13 = _diff(c, 4) * 100, _diff(c, 13) * 100     # in basis points
@@ -95,8 +105,7 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
         spx_hi = _weeks_since_high(spx) <= 4
         near = bool(spx.iloc[-1] >= spx.iloc[-52:].max() * 0.97)
         for proxy, nm, txt in ((rut, "Russell 2000", "schmale Führung — Small Caps bestätigen nicht"),
-                               (djt, "Dow Transports", "Dow-Theorie: Transports bestätigen nicht"),
-                               (ndx, "Nasdaq", "Tech bestätigt den S&P nicht mehr")):
+                               (djt, "Dow Transports", "Dow-Theorie: Transports bestätigen nicht")):
             if proxy is None:
                 continue
             p_hi = _weeks_since_high(proxy) <= 8
@@ -104,13 +113,21 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
             add(f"S&P-Hoch ohne {nm}", active, "warn" if active else "ok",
                 f"S&P-Hoch vor {_weeks_since_high(spx)}W · {nm}-Hoch vor {_weeks_since_high(proxy)}W",
                 txt if active else f"{nm} bestätigt")
-        if ndx is not None:
-            n_hi, s_hi = _weeks_since_high(ndx) <= 4, _weeks_since_high(spx) <= 8
-            active = n_hi and not s_hi
-            add("Nasdaq-Hoch ohne S&P", active, "warn" if active else "ok",
-                f"Nasdaq-Hoch vor {_weeks_since_high(ndx)}W · S&P vor {_weeks_since_high(spx)}W",
-                "Rally trägt nur auf Tech — typisch spät im Zyklus" if active
-                else "Führung breit genug")
+    # ---- 1b) The three majors must confirm each other (weekly closes) -----
+    trio = {"S&P": spx, "Nasdaq": ndx, "Dow": dji}
+    ages = {k: _weeks_since_high(v) for k, v in trio.items() if v is not None}
+    if len(ages) == 3:
+        fresh = {k for k, a in ages.items() if a <= 4}
+        stale = {k for k, a in ages.items() if a > 8}
+        active = 1 <= len(fresh) <= 2 and len(stale) >= 1
+        worst = max(ages.values())
+        add("Index-Divergenz S&P / Nasdaq / Dow", active,
+            "warn" if active and worst > 13 else "watch" if active else "ok",
+            " · ".join(f"{k}-Hoch vor {a}W" for k, a in ages.items()),
+            (f"{', '.join(sorted(fresh))} auf neuem Hoch, "
+             f"{', '.join(sorted(stale))} nicht — Dow-Theorie: unbestätigte Bewegung")
+            if active else "alle drei bestätigen einander"
+            if len(fresh) == 3 else "keiner am Hoch — keine Divergenz, sondern Korrektur")
 
     # ---- 2) Yield curve 10Y - 3M ---------------------------------------------
     tnx, irx = g("^TNX"), g("^IRX")
@@ -131,24 +148,20 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
     hyg, ief = g("HYG"), g("IEF")
     if hyg is not None and ief is not None and spx is not None:
         ratio = (hyg / ief.reindex(hyg.index).ffill()).dropna()
-        r13 = _chg(ratio, 13)
+        hit, txt, _, _ = _dual(ratio, -3.0, -1.5)
         spx_near = bool(spx.iloc[-1] >= spx.iloc[-52:].max() * 0.95)
-        active = np.isfinite(r13) and r13 < -3.0 and spx_near
-        add("Kreditspreads weiten sich", active, "warn" if active else
-            ("watch" if np.isfinite(r13) and r13 < -3.0 else "ok"),
-            f"HYG/IEF 13W {r13:+.1f}%" if np.isfinite(r13) else "n/a",
-            "Kredit preist Stress, Aktien nicht — Kredit hat meist recht" if active
-            else "Kredit schwächer, aber Index ebenfalls" if np.isfinite(r13) and r13 < -3
-            else "kein Stress im Kreditmarkt")
+        add("Kreditspreads weiten sich", hit,
+            "warn" if hit and spx_near else "watch" if hit else "ok",
+            "HYG/IEF " + txt,
+            "Kredit preist Stress, Aktien nicht — Kredit hat meist recht" if hit and spx_near
+            else "Kredit schwächer, Index ebenfalls" if hit else "kein Stress im Kreditmarkt")
 
     # ---- 4) Copper / Gold -------------------------------------------------------
     hg, gc = g("HG=F"), g("GC=F")
     if hg is not None and gc is not None:
         ratio = (hg / gc.reindex(hg.index).ffill()).dropna()
-        r13 = _chg(ratio, 13)
-        active = np.isfinite(r13) and r13 < -8.0
-        add("Kupfer/Gold fällt", active, "warn" if active else "ok",
-            f"13W {r13:+.1f}%" if np.isfinite(r13) else "n/a",
+        active, txt, _, _ = _dual(ratio, -8.0, -5.0)
+        add("Kupfer/Gold fällt", active, "warn" if active else "ok", txt,
             "Wachstum verliert gegen Angst — Zykliker-Warnung" if active
             else "Wachstumsproxy intakt")
 
@@ -164,21 +177,22 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
 
     # ---- 6) Rate shock at highs ------------------------------------------------
     if tnx is not None and spx is not None:
-        t13 = _diff(tnx, 13) * 100
+        t4, t13 = _diff(tnx, 4) * 100, _diff(tnx, 13) * 100
         spx_near = bool(spx.iloc[-1] >= spx.iloc[-52:].max() * 0.95)
-        active = np.isfinite(t13) and t13 > 50 and spx_near
+        hit = (np.isfinite(t4) and t4 > 30) or (np.isfinite(t13) and t13 > 50)
+        active = hit and spx_near
         add("Zinsschock bei Höchstständen", active, "warn" if active else "ok",
-            f"10J 13W {t13:+.0f} Bp",
+            f"10J 4W {t4:+.0f} Bp · 13W {t13:+.0f} Bp",
             "Langfristzinsen laufen weg, während Aktien am Hoch stehen — Bewertungsdruck kommt "
             "mit Verzögerung" if active else "Zinsen kein akuter Gegenwind")
 
     # ---- 7) Long end vs 10Y (term premium) ----------------------------------
     tyx = g("^TYX")
     if tnx is not None and tyx is not None:
-        t13 = _diff(tnx, 13) * 100; y13 = _diff(tyx, 13) * 100
-        active = np.isfinite(t13) and np.isfinite(y13) and y13 - t13 > 15
+        t4 = _diff(tnx, 4) * 100; y4 = _diff(tyx, 4) * 100
+        active = np.isfinite(t4) and np.isfinite(y4) and y4 - t4 > 10
         add("30J steigt schneller als 10J", active, "watch" if active else "ok",
-            f"30J {y13:+.0f} Bp vs 10J {t13:+.0f} Bp (13W)",
+            f"30J {y4:+.0f} Bp vs 10J {t4:+.0f} Bp (4W)",
             "Laufzeitprämie steigt — Fiskal-/Angebotsdruck am langen Ende" if active
             else "keine Auffälligkeit am langen Ende")
 
@@ -195,11 +209,12 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
     # ---- 9) Oil shock ----------------------------------------------------------
     cl = g("CL=F")
     if cl is not None:
-        o13 = _chg(cl, 13)
-        active = np.isfinite(o13) and abs(o13) > 20
+        o4, o13 = _chg(cl, 4), _chg(cl, 13)
+        active = (np.isfinite(o4) and abs(o4) > 12) or (np.isfinite(o13) and abs(o13) > 20)
+        ref = o4 if np.isfinite(o4) and abs(o4) > 12 else o13
         add("Ölpreis-Schock", active, "watch" if active else "ok",
-            f"WTI 13W {o13:+.1f}%",
-            ("Inflationsimpuls" if o13 > 0 else "Nachfrageeinbruch?") if active
+            f"WTI 4W {o4:+.1f}% · 13W {o13:+.1f}%",
+            ("Inflationsimpuls" if ref > 0 else "Nachfrageeinbruch?") if active
             else "Öl im Rahmen")
 
     # ---- 10) VIX term structure --------------------------------------------
@@ -234,10 +249,9 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
     kre = g("KRE")
     if kre is not None and spx is not None:
         ratio = (kre / spx.reindex(kre.index).ffill()).dropna()
-        r13 = _chg(ratio, 13)
-        active = np.isfinite(r13) and r13 < -8.0
+        active, txt, _, _ = _dual(ratio, -8.0, -5.0)
         add("Regionalbanken fallen zurück", active, "warn" if active else "ok",
-            f"KRE/SPX 13W {r13:+.1f}%" if np.isfinite(r13) else "n/a",
+            "KRE/SPX " + txt,
             "Banken preisen Kreditstress vor dem Markt (vgl. März 2023)" if active
             else "Banken laufen mit")
 
@@ -245,11 +259,10 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
     xlp, xly = g("XLP"), g("XLY")
     if xlp is not None and xly is not None and spx is not None:
         ratio = (xlp / xly.reindex(xlp.index).ffill()).dropna()
-        r13 = _chg(ratio, 13)
+        rot, txt, _, _ = _dual(ratio, 5.0, 3.0)
         spx_near = bool(spx.iloc[-1] >= spx.iloc[-52:].max() * 0.95)
-        rot = np.isfinite(r13) and r13 > 5.0
         add("Rotation in Defensive", rot, ("warn" if rot and spx_near else "watch" if rot else "ok"),
-            f"Staples/Discretionary 13W {r13:+.1f}%" if np.isfinite(r13) else "n/a",
+            "Staples/Discretionary " + txt,
             "Geld wandert in Staples, während der Index noch am Hoch steht — späte Phase"
             if rot and spx_near else "Defensiv-Rotation läuft" if rot else "Risk-on intakt")
 
@@ -257,10 +270,9 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
     lqd = g("LQD")
     if hyg is not None and lqd is not None:
         ratio = (hyg / lqd.reindex(hyg.index).ffill()).dropna()
-        r13 = _chg(ratio, 13)
-        active = np.isfinite(r13) and r13 < -3.0
+        active, txt, _, _ = _dual(ratio, -3.0, -1.5)
         add("High Yield fällt gegen Investment Grade", active, "watch" if active else "ok",
-            f"HYG/LQD 13W {r13:+.1f}%" if np.isfinite(r13) else "n/a",
+            "HYG/LQD " + txt,
             "Schwache Schuldner werden zuerst gemieden" if active else "kein Qualitätsflucht")
 
     # ---- 15) Inflation expectations -----------------------------------------
@@ -277,17 +289,14 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
     # ---- 16) Bitcoin as liquidity canary --------------------------------------
     btc = g("BTC-USD")
     if btc is not None and spx is not None:
-        bs = btc.rolling(C.MA_WEEKS).mean()
-        b_st = classify_stage(float(btc.iloc[-1]), float(bs.iloc[-1]),
-                              float(I.sma_slope(bs).iloc[-1]))
-        ss_ = spx.rolling(C.MA_WEEKS).mean()
-        s_st = classify_stage(float(spx.iloc[-1]), float(ss_.iloc[-1]),
-                              float(I.sma_slope(ss_).iloc[-1]))
-        active = b_st == 4 and s_st == 2
-        add("Bitcoin bricht, Aktien nicht", active, "watch" if active else "ok",
-            f"BTC {STAGE_NAME[b_st]} · S&P {STAGE_NAME[s_st]}",
-            "das liquiditätssensitivste Asset dreht zuerst — Divergenz beobachten"
-            if active else "kein Liquiditätswarnsignal")
+        b4 = _chg(btc, 4)
+        spx_near = bool(spx.iloc[-1] >= spx.iloc[-52:].max() * 0.95)
+        hit = np.isfinite(b4) and b4 < -15.0
+        add("Bitcoin fällt scharf", hit, "warn" if hit and spx_near else "watch" if hit else "ok",
+            f"BTC 4W {b4:+.1f}%" if np.isfinite(b4) else "n/a",
+            "das liquiditätssensitivste Asset gibt nach, Aktien noch nicht — Divergenz"
+            if hit and spx_near else "Liquidität zieht sich zurück" if hit
+            else "kein Liquiditätswarnsignal")
 
     n_warn = sum(1 for s in signals if s["active"] and s["level"] == "warn")
     n_watch = sum(1 for s in signals if s["active"] and s["level"] == "watch")
