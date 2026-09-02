@@ -34,6 +34,8 @@ class Signal:
     signal_type: str = "breakout"     # "breakout" | "pullback" | "breakdown"
     is_new: bool = True               # not on last week's list for this type
     weeks_on_list: int = 1            # consecutive runs with the same signal
+    fib: float | None = None          # pullback: share of last up-leg retraced
+    mrs13: float | None = None        # faster Mansfield RS (13W)
 
 
 def _sparks(close: pd.Series, sma: pd.Series, mrs: pd.Series, n: int = 52):
@@ -53,6 +55,9 @@ def evaluate(ticker: str, name: str, universe: str,
     sma = close.rolling(C.MA_WEEKS).mean()
     slope = I.sma_slope(sma)
     mrs = I.mansfield_rs(close, bench_close)
+    mrs13_s = I.mansfield_rs(close, bench_close, weeks=C.MRS_SHORT_WEEKS)
+    mrs13 = (round(float(mrs13_s.iloc[-1]), 1)
+             if np.isfinite(mrs13_s.iloc[-1]) else None)
 
     if not np.isfinite(sma.iloc[-1]) or not np.isfinite(mrs.iloc[-1]):
         return None
@@ -113,7 +118,7 @@ def evaluate(ticker: str, name: str, universe: str,
                       vr if np.isfinite(vr) else float("nan"),
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
                       False, False, round(score, 2), sc, ss, sm,
-                      signal_type="breakout")
+                      signal_type="breakout", mrs13=mrs13)
 
     # ------------------------------------------------- LONG PULLBACK ------
     # Weinstein's investor entry: Stage 2 confirmed, price retesting the
@@ -121,13 +126,16 @@ def evaluate(ticker: str, name: str, universe: str,
     hi13 = close.iloc[-C.PB_HIGH_WINDOW:].max()
     hi26 = close.iloc[-C.BREAKOUT_WINDOW:].max()
     ext_over_ma = c / s - 1.0
+    fib, _, _ = I.leg_retrace(close)
     pullback_ok = (
         c > s
         and sl > C.PB_MIN_SLOPE
-        and m > 0
+        and m >= C.PB_MIN_MRS                     # clearly positive RS
         and hi13 >= hi26 * 0.999                  # the high is recent
         and c <= hi13 * (1 - C.PB_MIN_OFF_HIGH)   # actually pulled back
         and ext_over_ma <= zone                   # inside the buy zone
+        and np.isfinite(fib)
+        and C.PB_FIB_MIN <= fib <= C.PB_FIB_MAX   # meaningful, not broken
     )
     if pullback_ok:
         vol_dry = np.isfinite(vr) and vr < 1.0    # volume drying up = healthy
@@ -143,7 +151,7 @@ def evaluate(ticker: str, name: str, universe: str,
                       vr if np.isfinite(vr) else float("nan"),
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
                       False, bool(vol_dry), round(score, 2), sc, ss, sm,
-                      signal_type="pullback")
+                      signal_type="pullback", fib=round(float(fib), 3), mrs13=mrs13)
 
     # ---------------------------------------------- PRE-BREAKOUT ----------
     # Valid base, price coiling within 5% below the range high, MA flat,
@@ -178,7 +186,7 @@ def evaluate(ticker: str, name: str, universe: str,
                       vr if np.isfinite(vr) else float("nan"),
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
                       False, False, round(score, 2), sc, ss, sm,
-                      signal_type="pre_breakout")
+                      signal_type="pre_breakout", mrs13=mrs13)
 
     # ------------------------------------------------- BASE-LOW -----------
     # Accumulation-range entry: mature base, price in the lower third of the
@@ -221,7 +229,7 @@ def evaluate(ticker: str, name: str, universe: str,
                       vr if np.isfinite(vr) else float("nan"),
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
                       False, bool(vol_dry), round(score, 2), sc, ss, sm,
-                      signal_type="base_low")
+                      signal_type="base_low", mrs13=mrs13)
 
     # ---------------------------------------------------------- SHORT -----
     div = I.bearish_divergence(close, mrs)
@@ -250,7 +258,7 @@ def evaluate(ticker: str, name: str, universe: str,
                       vr if np.isfinite(vr) else float("nan"),
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
                       div, bool(vol_bonus), round(score, 2), sc, ss, sm,
-                      signal_type="breakdown")
+                      signal_type="breakdown", mrs13=mrs13)
 
     # ------------------------------------------------- SHORT RALLY --------
     # Weinstein's actual short entry in an established downtrend: price
@@ -279,9 +287,22 @@ def evaluate(ticker: str, name: str, universe: str,
                       vr if np.isfinite(vr) else float("nan"),
                       base_weeks, base_vol if np.isfinite(base_vol) else float("nan"),
                       div, False, round(score, 2), sc, ss, sm,
-                      signal_type="rally")
+                      signal_type="rally", mrs13=mrs13)
 
     return None
+
+
+def _accel(d2: float, d4: float, tol: float = 0.5) -> str:
+    """Compare the 2-week pace with the 4-week pace (halved).
+    'up'   : last 2 weeks faster than the 4-week average pace  -> accelerating
+    'down' : slower than the 4-week pace while 4W is positive  -> tiring
+    ''     : within tolerance / no trend to speak of"""
+    pace4 = d4 / 2.0
+    if d2 > pace4 + tol and d2 > 0:
+        return "up"
+    if d4 > 0 and d2 < pace4 - tol:
+        return "down"
+    return ""
 
 
 def sector_table(sector_weekly: dict[str, pd.DataFrame],
@@ -294,11 +315,26 @@ def sector_table(sector_weekly: dict[str, pd.DataFrame],
         mrs = I.mansfield_rs(wk["close"], bench_close).dropna()
         if len(mrs) < 5:
             continue
+        m13 = I.mansfield_rs(wk["close"], bench_close,
+                             weeks=C.MRS_SHORT_WEEKS).dropna()
+        m13_now = float(m13.iloc[-1]) if len(m13) else float("nan")
+        m52_now = float(mrs.iloc[-1])
+        # the fast RS crossed zero while the slow one is still below: an
+        # emerging trend before it shows in the 52-week measure
+        lead = ("aufwärts" if m13_now > 0 and m52_now <= 0 else
+                "abwärts" if m13_now < 0 and m52_now >= 0 else "")
         rows.append({
             "symbol": sym,
             "name": C.SECTOR_ETFS.get(sym, sym),
-            "mrs": round(float(mrs.iloc[-1]), 2),
+            "mrs": round(m52_now, 2),
+            "mrs13": round(m13_now, 2) if np.isfinite(m13_now) else None,
+            "lead": lead,
             "mrs_chg_4w": round(float(mrs.iloc[-1] - mrs.iloc[-5]), 2),
+            "mrs_chg_2w": round(float(mrs.iloc[-1] - mrs.iloc[-3]), 2),
+            # pace of the last 2 weeks vs. the average 2-week pace inside the
+            # 4-week window: faster = accelerating, slower while 4W > 0 = tiring
+            "accel": _accel(float(mrs.iloc[-1] - mrs.iloc[-3]),
+                            float(mrs.iloc[-1] - mrs.iloc[-5])),
             "spark_mrs": [round(float(v), 3) for v in mrs.iloc[-52:]],
         })
     df = pd.DataFrame(rows)
