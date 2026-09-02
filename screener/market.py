@@ -22,12 +22,36 @@ from . import indicators as I
 # stage classification (quadrant of price vs. MA and MA slope)
 # --------------------------------------------------------------------------
 def classify_stage(close: float, sma: float, slope: float,
-                   flat: float = 0.005) -> int:
+                   flat: float = 0.005, prior_slope: float | None = None) -> int:
+    """Weinstein stage from the MA quadrant.
+
+    A FLAT moving average is ambiguous on its own: Stage 1 (base after a
+    decline) and Stage 3 (top after an advance) look identical in the moment.
+    What separates them is the approach — pass `prior_slope` (the MA's slope
+    a couple of quarters back) and the flat case is resolved by history.
+    """
     if not (np.isfinite(close) and np.isfinite(sma) and np.isfinite(slope)):
         return 0
-    if close > sma:
-        return 2 if slope > flat else 3
-    return 4 if slope < -flat else 1
+    if slope > flat and close > sma:       # the only unambiguous Stage 2
+        return 2
+    if slope < -flat and close < sma:      # the only unambiguous Stage 4
+        return 4
+    # Everything else — flat MA, or price on the "wrong" side of a mildly
+    # sloping MA — is a transition zone. Only the approach tells 1 from 3.
+    if prior_slope is not None and np.isfinite(prior_slope):
+        return 1 if prior_slope < 0 else 3
+    return 3 if close > sma else 1         # no history: old heuristic
+
+
+def stage_of(close: pd.Series, sma: pd.Series | None = None) -> int:
+    """Stage for a full series, with the approach context filled in."""
+    if sma is None:
+        sma = close.rolling(C.MA_WEEKS).mean()
+    sl = I.sma_slope(sma)
+    approach = sl.iloc[-52:-26].dropna()
+    prior = float(approach.mean()) if len(approach) else None
+    return classify_stage(float(close.iloc[-1]), float(sma.iloc[-1]),
+                          float(sl.iloc[-1]), prior_slope=prior)
 
 
 STAGE_NAME = {1: "Stage 1 (Basis)", 2: "Stage 2 (Aufwärts)",
@@ -79,11 +103,7 @@ def stage_distribution(weekly: dict[str, pd.DataFrame],
         wk = weekly.get(t)
         if wk is None or len(wk) < C.MA_WEEKS + C.SLOPE_LOOKBACK + 1:
             continue
-        close = wk["close"]
-        sma = close.rolling(C.MA_WEEKS).mean()
-        sl = I.sma_slope(sma)
-        st = classify_stage(float(close.iloc[-1]), float(sma.iloc[-1]),
-                            float(sl.iloc[-1]))
+        st = stage_of(wk["close"])
         if st in counts:
             counts[st] += 1
     total = sum(counts.values()) or 1
@@ -158,10 +178,7 @@ def four_month_rule(weekly: dict[str, pd.DataFrame], tickers: list[str],
     for t in big:
         wk = weekly[t]
         close = wk["close"]
-        sma = close.rolling(C.MA_WEEKS).mean()
-        sl = I.sma_slope(sma)
-        st = classify_stage(float(close.iloc[-1]), float(sma.iloc[-1]),
-                            float(sl.iloc[-1]))
+        st = stage_of(close)
         age_high = _weeks_since_max(close, 52)
         age_low = _weeks_since_min(close, 52)
         # Weinstein, literally: NEITHER a new high NOR a new low in four
@@ -198,8 +215,7 @@ def world_markets(weekly: dict[str, pd.DataFrame],
         close = wk["close"]
         sma = close.rolling(C.MA_WEEKS).mean()
         sl = I.sma_slope(sma)
-        st = classify_stage(float(close.iloc[-1]), float(sma.iloc[-1]),
-                            float(sl.iloc[-1]))
+        st = stage_of(close, sma)
         mrs = I.mansfield_rs(close, spx_close)
         rows.append({
             "symbol": sym, "name": name, "stage": st,
@@ -350,8 +366,7 @@ def compute(weekly: dict[str, pd.DataFrame], universe: pd.DataFrame,
 
     sma_spx = spx.rolling(C.MA_WEEKS).mean()
     slope_spx = I.sma_slope(sma_spx)
-    spx_stage = classify_stage(float(spx.iloc[-1]), float(sma_spx.iloc[-1]),
-                               float(slope_spx.iloc[-1]))
+    spx_stage = stage_of(spx, sma_spx)
 
     adiv = ad_divergence(spx, ad)
     hdiv = hl_divergence(spx, hl)
