@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 
 
 def render(long_signals, short_signals, sectors_df, watchlist_rows,
-           issues: list[str], stats: dict, macro: dict | None = None) -> str:
+           issues: list[str], stats: dict, macro: dict | None = None,
+           vol_rows: list | None = None, acc_rows: list | None = None,
+           inter: dict | None = None) -> str:
     payload = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "stats": stats,
@@ -21,9 +23,17 @@ def render(long_signals, short_signals, sectors_df, watchlist_rows,
         "watchlists": watchlist_rows,
         "issues": issues,
         "macro": macro,
+        "volume": vol_rows or [],
+        "accel": acc_rows or [],
+        "inter": inter,
+        "topn": _TOPN,
     }
     return _TEMPLATE.replace("__DATA__",
                              json.dumps(_sanitize(payload), allow_nan=False))
+
+
+from . import config as _C
+_TOPN = _C.DISPLAY_TOP_N
 
 
 def _sanitize(o):
@@ -122,6 +132,16 @@ svg text{font:10px "IBM Plex Mono",monospace;fill:var(--muted)}
 .filterbar .reset{border-style:dashed}
 .badge.neu{color:var(--mrs);border-color:var(--mrs);font-weight:600}
 tr.reviewed td{opacity:.5}
+.sig{display:grid;grid-template-columns:auto 1fr auto;gap:8px 14px;align-items:baseline;
+  padding:9px 0;border-bottom:1px solid var(--grid);font-size:13px}
+.sig:last-child{border-bottom:none}
+.lamp{display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:3px}
+.lamp.warn{background:var(--short)} .lamp.watch{background:var(--flag)} .lamp.ok{background:var(--long);opacity:.45}
+.sig .why{color:var(--muted);font-size:12px;grid-column:2/4}
+.sig .val{color:var(--muted);white-space:nowrap}
+.morebtn{font:600 11px "IBM Plex Mono";background:none;border:1px dashed var(--grid);
+  padding:7px 12px;cursor:pointer;color:var(--muted);margin-top:10px;width:100%}
+.lead-up{color:var(--long);font-weight:600} .lead-dn{color:var(--short);font-weight:600}
 @media(max-width:720px){main,header,nav{padding-left:12px;padding-right:12px}
   td,th{padding:6px 6px;font-size:12px}}
 </style>
@@ -203,8 +223,12 @@ function mansfieldPanel(s){
 }
 
 /* ---------- tables ---------- */
-function table(rows,cols,detail){
+const showAll={};
+function table(rows,cols,detail,tabId){
   if(!rows.length)return `<div class="empty">Keine Treffer in dieser Ansicht.</div>`;
+  const total=rows.length, lim=D.topn||25;
+  const cut=(tabId&&!showAll[tabId]&&total>lim);
+  if(cut)rows=rows.slice(0,lim);
   let html=`<table><thead><tr>`+cols.map((c,i)=>
     `<th data-i="${i}">${c.h} <span class="arr"></span></th>`).join("")+`</tr></thead><tbody>`;
   rows.forEach((r,ri)=>{
@@ -214,7 +238,9 @@ function table(rows,cols,detail){
     if(detail)html+=`<tr class="detail" data-k="${key}" style="display:none">
       <td colspan="${cols.length}"><div class="chartwrap">${detail(r)}</div></td></tr>`;
   });
-  return html+`</tbody></table>`;
+  html+=`</tbody></table>`;
+  if(cut)html+=`<button class="morebtn" data-more="${tabId}">alle ${total} anzeigen (Top ${lim} nach Score sichtbar)</button>`;
+  return html;
 }
 function applyFilter(rows){
   return rows.filter(r=>{
@@ -270,7 +296,9 @@ const sigCols=[
   {h:"Close",f:r=>fmt(r.close),k:r=>r.close},
   {h:"vs 30W",f:r=>`<span class="${cls(r.close/r.sma30-1)}">${fmt((r.close/r.sma30-1)*100,1)}%</span>`,k:r=>r.close/r.sma30},
   {h:"Slope 6W",f:r=>`<span class="${cls(r.slope6)}">${fmt(r.slope6*100,2)}%</span>`,k:r=>r.slope6},
-  {h:"MRS",f:r=>`<span class="${cls(r.mrs)}">${fmt(r.mrs,1)}</span>`,k:r=>r.mrs},
+  {h:"MRS 52",f:r=>`<span class="${cls(r.mrs)}">${fmt(r.mrs,1)}</span>`,k:r=>r.mrs},
+  {h:"MRS 13",f:r=>r.mrs13==null?"–":`<span class="${cls(r.mrs13)}">${fmt(r.mrs13,1)}</span>`,k:r=>r.mrs13??-99},
+  {h:"Fib",f:r=>r.fib==null?"–":fmt(r.fib,2),k:r=>r.fib??-1},
   {h:"Vol ×",f:r=>fmt(r.vol_ratio,2),k:r=>r.vol_ratio},
   {h:"Basis W",f:r=>r.base_weeks,k:r=>r.base_weeks},
   {h:"Wo. Liste",f:r=>r.weeks_on_list??1,k:r=>r.weeks_on_list??1},
@@ -281,8 +309,14 @@ const sigCols=[
 const secCols=[
   {h:"ETF",f:r=>`<span class="tick">${r.symbol}</span>`,k:r=>r.symbol},
   {h:"Sektor / Thema",f:r=>r.name,k:r=>r.name},
-  {h:"MRS vs SPX",f:r=>`<span class="${cls(r.mrs)}">${fmt(r.mrs,1)}</span>`,k:r=>r.mrs},
+  {h:"MRS 52",f:r=>`<span class="${cls(r.mrs)}">${fmt(r.mrs,1)}</span>`,k:r=>r.mrs},
+  {h:"MRS 13",f:r=>r.mrs13==null?"–":`<span class="${cls(r.mrs13)}">${fmt(r.mrs13,1)}</span>`,k:r=>r.mrs13??-99},
+  {h:"13W führt",f:r=>r.lead==="aufwärts"?`<span class="lead-up">▲ dreht auf</span>`:
+     r.lead==="abwärts"?`<span class="lead-dn">▼ dreht ab</span>`:"–",k:r=>r.lead||""},
+  {h:"Δ 2W",f:r=>r.mrs_chg_2w==null?"–":`<span class="${cls(r.mrs_chg_2w)}">${fmt(r.mrs_chg_2w,1)}</span>`,k:r=>r.mrs_chg_2w??-99},
   {h:"Δ 4W",f:r=>`<span class="${cls(r.mrs_chg_4w)}">${fmt(r.mrs_chg_4w,1)}</span>`,k:r=>r.mrs_chg_4w},
+  {h:"Tempo",f:r=>r.accel==="up"?`<span class="lead-up" title="2W schneller als 4W-Tempo">⇈</span>`:
+     r.accel==="down"?`<span class="lead-dn" title="2W langsamer als 4W-Tempo, Trend ermüdet">⇊</span>`:"→",k:r=>r.accel==="up"?2:r.accel==="down"?0:1},
   {h:"MRS 52W",f:r=>spark(r.spark_mrs,"var(--mrs)",170,30),k:r=>0},
 ];
 const wlCols=[
@@ -295,6 +329,52 @@ const wlCols=[
   {h:"Quadrant",f:r=>r.quadrant?`<span class="quad ${r.quadrant}">${r.quadrant}</span>`:"–",k:r=>r.quadrant||""},
   {h:"Signal",f:r=>r.signal||"–",k:r=>r.signal||""},
 ];
+
+const volCols=[
+  {h:"Ticker",f:r=>`<span class="tick">${r.ticker}</span>`,k:r=>r.ticker},
+  {h:"Name",f:r=>r.name.slice(0,26),k:r=>r.name},
+  {h:"Univ.",f:r=>r.universe,k:r=>r.universe},
+  {h:"Vol ×",f:r=>`<b>${fmt(r.vol_ratio,2)}</b>`,k:r=>r.vol_ratio},
+  {h:"Woche",f:r=>`<span class="${cls(r.chg_w)}">${fmt(r.chg_w,1)}%</span>`,k:r=>r.chg_w},
+  {h:"Close",f:r=>fmt(r.close),k:r=>r.close},
+  {h:"vs 30W",f:r=>r.vs_ma==null?"–":`<span class="${cls(r.vs_ma)}">${fmt(r.vs_ma,1)}%</span>`,k:r=>r.vs_ma??-99},
+  {h:"MRS 52",f:r=>r.mrs==null?"–":`<span class="${cls(r.mrs)}">${fmt(r.mrs,1)}</span>`,k:r=>r.mrs??-99},
+  {h:"MRS 13",f:r=>r.mrs13==null?"–":`<span class="${cls(r.mrs13)}">${fmt(r.mrs13,1)}</span>`,k:r=>r.mrs13??-99},
+  {h:"MRS Δ4W",f:r=>r.mrs_chg_4w==null?"–":`<span class="${cls(r.mrs_chg_4w)}">${fmt(r.mrs_chg_4w,1)}</span>`,k:r=>r.mrs_chg_4w??-99},
+  {h:"52W",f:r=>spark(r.spark_close,"var(--ink)"),k:r=>0},
+];
+const accCols=[
+  {h:"Ticker",f:r=>`<span class="tick">${r.ticker}</span>`+(r.lead?`<span class="badge fresh">13W &gt; 0</span>`:""),k:r=>r.ticker},
+  {h:"Name",f:r=>r.name.slice(0,26),k:r=>r.name},
+  {h:"Univ.",f:r=>r.universe,k:r=>r.universe},
+  {h:"MRS vor 8W",f:r=>`<span class="${cls(r.mrs_then)}">${fmt(r.mrs_then,1)}</span>`,k:r=>r.mrs_then},
+  {h:"MRS jetzt",f:r=>`<span class="${cls(r.mrs)}">${fmt(r.mrs,1)}</span>`,k:r=>r.mrs},
+  {h:"Δ",f:r=>`<b class="${cls(r.delta)}">${fmt(r.delta,1)}</b>`,k:r=>r.delta},
+  {h:"MRS 13",f:r=>r.mrs13==null?"–":`<span class="${cls(r.mrs13)}">${fmt(r.mrs13,1)}</span>`,k:r=>r.mrs13??-99},
+  {h:"vs 30W",f:r=>r.vs_ma==null?"–":`<span class="${cls(r.vs_ma)}">${fmt(r.vs_ma,1)}%</span>`,k:r=>r.vs_ma??-99},
+  {h:"52W",f:r=>spark(r.spark_close,"var(--ink)"),k:r=>0},
+];
+const imCols=[
+  {h:"Instrument",f:r=>`<span class="tick">${r.name}</span><div style="color:var(--muted);font-size:11px">${r.symbol}</div>`,k:r=>r.name},
+  {h:"Gruppe",f:r=>r.group,k:r=>r.group},
+  {h:"Stand",f:r=>fmt(r.level,r.unit==="Bp"?2:2),k:r=>r.level},
+  {h:"4W",f:r=>r.chg4==null?"–":`<span class="${cls(r.chg4)}">${fmt(r.chg4,1)} ${r.unit}</span>`,k:r=>r.chg4??-999},
+  {h:"13W",f:r=>r.chg13==null?"–":`<span class="${cls(r.chg13)}">${fmt(r.chg13,1)} ${r.unit}</span>`,k:r=>r.chg13??-999},
+  {h:"Hoch vor",f:r=>r.high_age>=999?"–":r.high_age+"W",k:r=>r.high_age},
+  {h:"Stage",f:r=>r.stage_name,k:r=>r.stage},
+  {h:"52W",f:r=>spark(r.spark,"var(--ink)",120,26),k:r=>0},
+];
+function interPanel(){
+  const M=D.inter;
+  if(!M)return `<div class="empty">Intermarket-Modul lieferte keine Daten — siehe Hinweise unten.</div>`;
+  const sigs=M.signals.map(s=>`<div class="sig"><span class="lamp ${s.active?s.level:"ok"}"></span>
+    <b>${s.key}</b><span class="val">${s.value}</span><span class="why">${s.why}</span></div>`).join("");
+  return `<div class="gauge"><h2 class="${M.n_warn?"neg":"pos"}">${M.n_warn} <span style="font:500 16px 'IBM Plex Mono';color:var(--muted)">Warnung(en) · ${M.n_watch} Beobachtung(en)</span></h2>
+      <div class="lbl">Regime-Regeln aus Zinsen, Kredit, FX, Rohstoffen und Index-Führung. Kein Verbund-Score — diese Signale sind nicht gleichartig und werden einzeln gelesen.</div></div>
+    <div class="panel"><h3>Regime-Signale</h3>${sigs}</div>
+    <p class="note"><b>Zu CDS:</b> Es gibt keine freie CDX-/iTraxx-Quelle. Ersatz mit teils besserer Timing-Eigenschaft: VIX-Terminstruktur, Regionalbanken gegen Markt, HYG gegen LQD, Staples gegen Discretionary, Bitcoin als Liquiditätskanarienvogel. Nicht enthalten: DXY vs. EUR/USD. Der Euro ist ~57% des Dollar-Index, die beiden sind fast mechanisch invers — eine scheinbare Divergenz ist nur Yen und Pfund. Japan-Renditen liefert Yahoo nicht; USD/JPY ist deren handelbare Konsequenz und deckt den Carry-Unwind ab.</p>
+    <div class="panel"><h3>Instrumente</h3>${table(M.rows,imCols,null)}</div>`;
+}
 
 /* ---------- app ---------- */
 function macroPanel(){
@@ -380,18 +460,25 @@ const TABS=[
   render:()=>macroPanel()},
  {id:"stage12",label:lbl("LONG · Stage 1→2",L12),
   render:()=>`<p class="note"><b>Breakout</b>: Ausbruch auf 26W-Hoch aus valider Basis, max. 20% über Basis-Top, Volumen ≥ 1,5× in einer der letzten 4 Wochen. <b>PRE-BO</b>: noch in der Basis, ≤ 5% unter dem Range-Hoch, MA flach, RS positiv oder klar verbessernd — Kandidaten vor dem Pivot.</p>`+
-   filterBar(L12,"stage12")+table(applyFilter(L12),sigCols,r=>mansfieldPanel(r))},
+   filterBar(L12,"stage12")+table(applyFilter(L12),sigCols,r=>mansfieldPanel(r),"stage12")},
  {id:"stage2",label:lbl("LONG · Stage-2-Pullback",LPB),
   render:()=>`<p class="note">Stage 2 bestätigt: Retest ≤ 8% über steigendem 30W-MA nach frischem 26W-Hoch. VOL-Flag = Volumen trocknet im Rücksetzer aus (gesund). Stop-Logik: Wochenschluss unter dem 30W-MA.</p>`+
-   filterBar(LPB,"stage2")+table(applyFilter(LPB),sigCols,r=>mansfieldPanel(r))},
+   filterBar(LPB,"stage2")+table(applyFilter(LPB),sigCols,r=>mansfieldPanel(r),"stage2")},
  {id:"baselow",label:lbl("BASIS-TIEF",LBL),
   render:()=>`<p class="note">Akkumulations-Range-Einstieg: gereifte Basis, Kurs im unteren Drittel der 26W-Range, Tief ≥ 8 Wochen alt, <b>MRS über 8 Wochen steigend</b> (Akkumulations-Beweis). Stop-Logik: unter dem Range-Tief. Kein Weinstein-Signal — Location-Edge mit RS-Filter.</p>`+
-   filterBar(LBL,"baselow")+table(applyFilter(LBL),sigCols,r=>mansfieldPanel(r))},
+   filterBar(LBL,"baselow")+table(applyFilter(LBL),sigCols,r=>mansfieldPanel(r),"baselow")},
  {id:"short",label:lbl("SHORT · Stage 3→4",D.short),
-  render:()=>`<p class="note"><b>Breakdown</b>: frischer Bruch auf 26W-Tief, max. 40% unter dem 52W-Hoch (keine Wasserfall-Fortsetzung), Kurs &lt; kippendem 30W-MA, vorheriger Stage-2-Markup. <b>RALLY</b>: etablierter Abwärtstrend, Kurs ≤ 8% unter fallendem 30W-MA nach Erholung vom Tief — die Weinstein-Short-Zone. Beide: MRS &lt; 0.</p>`+
-   filterBar(D.short,"short")+table(applyFilter(D.short),sigCols,r=>mansfieldPanel(r))},
+  render:()=>`<p class="note"><b>Breakdown</b>: frischer Bruch auf 26W-Tief, höchstens 50% des vorherigen Markups zurückgegeben (Log-Raum, skalenunabhängig), Kurs &lt; kippendem 30W-MA. <b>RALLY</b>: etablierter Abwärtstrend, Erholung in die Zone unter dem fallenden 30W-MA (Zone = 2× Wochen-ATR, max. 18%). Beide: MRS &lt; 0, echter vorheriger Markup, nur liquide Großwerte.</p>`+
+   filterBar(D.short,"short")+table(applyFilter(D.short),sigCols,r=>mansfieldPanel(r),"short")},
+ {id:"volume",label:`VOLUMEN & RS-BESCHLEUNIGER`,
+  render:()=>`<p class="note"><b>Volumenanstieg</b> — Top ${D.volume.length} liquide Großwerte nach Wochenvolumen relativ zum 10W-Schnitt. Richtung steht daneben: Anstieg mit steigendem Kurs = Akkumulation, mit fallendem = Distribution. Klick öffnet Chart + MRS.</p>`+
+   table(D.volume,volCols,r=>mansfieldPanel(r))+
+   `<p class="note" style="margin-top:26px"><b>RS-Beschleuniger</b> — Großwerte mit der stärksten MRS-Verbesserung über 8 Wochen, <i>aus der Schwäche kommend</i> (MRS vor 8W noch negativ). Das ist der Fußabdruck, bevor ein Trend im 52W-Maß sichtbar wird. Badge „13W &gt; 0": die schnelle RS ist schon positiv, die langsame noch nicht.</p>`+
+   table(D.accel,accCols,r=>mansfieldPanel(r))},
+ {id:"inter",label:`INTERMARKET${D.inter?" · "+D.inter.n_warn+"⚠":""}`,
+  render:()=>interPanel()},
  {id:"sectors",label:"SEKTOR-ROTATION",
-  render:()=>`<p class="note">Mansfield RS aller Sektor-/Themen-ETFs gegen SPX. Δ 4W = Momentum der relativen Stärke — die Wachablösung zeigt sich hier zuerst.</p>`+
+  render:()=>`<p class="note">Mansfield RS aller Sektor-/Themen-ETFs gegen SPX in zwei Fenstern. <b>13W führt</b>: die schnelle RS hat die Nulllinie gekreuzt, die 52W-RS noch nicht. <b>Δ 2W / Δ 4W</b>: Veränderung der 52W-RS. <b>Tempo</b> vergleicht beide: ⇈ die letzten zwei Wochen laufen schneller als das 4W-Tempo (Beschleunigung), ⇊ langsamer bei positivem Δ4W (Trend ermüdet, oft nahe Top), → gleichmäßig.</p>`+
    table(D.sectors,secCols,null)},
  {id:"watch",label:"WATCHLISTS",
   render:()=>`<p class="note">Dual-MRS: gegen lokalen Index und gegen Themen-Benchmark. leader = beide positiv · discounted_strength = sektorstark, Länder-Beta drückt.</p>`+
@@ -414,6 +501,9 @@ function show(id){
     const tr=el.closest("tr"); if(tr)tr.classList.toggle("reviewed", s==="skip");
     updateCounts(id);
   }));
+  m.querySelectorAll("[data-more]").forEach(el=>el.addEventListener("click",()=>{
+    showAll[el.dataset.more]=true; show(id);
+  }));
   m.querySelectorAll("[data-fm]").forEach(el=>el.addEventListener("click",()=>{
     filterMode=el.dataset.fm; show(id);
   }));
@@ -435,8 +525,10 @@ function show(id){
       th.querySelector(".arr").textContent=st.dir==="asc"?"\u25B2":"\u25BC";
   });
   m.querySelectorAll("th").forEach(th=>th.addEventListener("click",()=>{
-    const tabRows={stage12:L12,stage2:LPB,baselow:LBL,short:D.short,sectors:D.sectors,watch:D.watchlists}[id];
-    const colsets={stage12:sigCols,stage2:sigCols,baselow:sigCols,short:sigCols,sectors:secCols,watch:wlCols};
+    const tabRows={stage12:L12,stage2:LPB,baselow:LBL,short:D.short,sectors:D.sectors,watch:D.watchlists,
+                   volume:D.volume,inter:(D.inter||{}).rows}[id];
+    const colsets={stage12:sigCols,stage2:sigCols,baselow:sigCols,short:sigCols,sectors:secCols,watch:wlCols,
+                   volume:volCols,inter:imCols};
     if(!tabRows||!colsets[id])return;
     const i=+th.dataset.i, col=colsets[id][i];
     if(!col||!col.k)return;
@@ -457,7 +549,8 @@ function issuesBlock(){
     (D.issues.length>40?`<div>… ${D.issues.length-40} weitere</div>`:"")+`</div>`;
 }
 document.getElementById("meta").textContent=
-  `Stand ${D.generated} · ${D.stats.tickers} Ticker gescreent · ${D.stats.failed} ohne Daten · Lauf: sonntags 07:00 UTC`;
+  `Stand ${D.generated} · Datenbasis: Woche bis ${D.stats.week_end||"?"} (abgeschlossen) `+
+  `· ${D.stats.tickers} Ticker · ${D.stats.failed} ohne Daten · Lauf: sonntags 07:00 UTC`;
 const nav=document.getElementById("tabs");
 TABS.forEach((t,i)=>{const b=document.createElement("button");
   b.textContent=t.label;b.dataset.id=t.id;
