@@ -19,6 +19,54 @@ WORLD_INDICES = {
 PD_PROXY = "SPY"                  # dividend proxy for the price/dividend ratio
 
 # ---------------------------------------------------------------------------
+# Intermarket / macro regime tab
+# ---------------------------------------------------------------------------
+INTERMARKET = {
+    "^GSPC":    ("S&P 500",                "Aktien"),
+    "^IXIC":    ("Nasdaq Composite",       "Aktien"),
+    "^DJI":     ("Dow Industrials",        "Aktien"),
+    "^DJT":     ("Dow Transports",         "Aktien"),
+    "^RUT":     ("Russell 2000",           "Aktien"),
+    "^TNX":     ("US 10J Rendite",         "Zinsen"),
+    "^TYX":     ("US 30J Rendite",         "Zinsen"),
+    "^IRX":     ("US 3M T-Bill",           "Zinsen"),
+    "SHY":      ("Treasuries 1-3J (ETF)",  "Zinsen"),
+    "IEF":      ("Treasuries 7-10J (ETF)", "Zinsen"),
+    "TLT":      ("Treasuries 20J+ (ETF)",  "Zinsen"),
+    "HYG":      ("High Yield (ETF)",       "Kredit"),
+    "LQD":      ("Investment Grade (ETF)", "Kredit"),
+    "DX-Y.NYB": ("Dollar-Index",           "FX"),
+    "EURUSD=X": ("EUR/USD",                "FX"),
+    "JPY=X":    ("USD/JPY",                "FX"),
+    "GC=F":     ("Gold",                   "Rohstoffe"),
+    "HG=F":     ("Kupfer",                 "Rohstoffe"),
+    "CL=F":     ("WTI Öl",                 "Rohstoffe"),
+    "^VIX":     ("VIX",                    "Volatilität"),
+    "^VIX3M":   ("VIX 3M",                 "Volatilität"),
+    "^MOVE":    ("MOVE (Anleihe-Vola)",    "Volatilität"),
+    "KRE":      ("Regionalbanken (ETF)",   "Kredit"),
+    "XLP":      ("Staples (ETF)",          "Rotation"),
+    "XLY":      ("Discretionary (ETF)",    "Rotation"),
+    "TIP":      ("TIPS (ETF)",             "Zinsen"),
+    "BTC-USD":  ("Bitcoin",                "Liquidität"),
+}
+
+# "Large" = top-N by median weekly dollar volume (no market-cap feed available)
+LARGE_TOP_US = 150
+LARGE_TOP_EU = 50
+SHORT_LARGE_ONLY = True           # shorts only in the large set (liquid derivatives)
+VOLUME_TAB_N = 20
+RS_ACCEL_N = 20
+RS_ACCEL_WEEKS = 8                # MRS change window for the accelerator panel
+MRS_SHORT_WEEKS = 13              # second, faster Mansfield window
+
+# Tighter pullbacks: fewer, better candidates
+PB_MIN_MRS = 5.0                  # RS must be clearly positive, not just > 0
+PB_FIB_MIN = 0.382                # retrace at least 38.2% of the last up-leg
+PB_FIB_MAX = 0.618                # ... at most 61.8%; deeper = structure in doubt
+DISPLAY_TOP_N = 25                # rows shown per signal tab before "show all"
+
+# ---------------------------------------------------------------------------
 # Sector / theme rotation view: everything is measured against BENCH_US
 # ---------------------------------------------------------------------------
 SECTOR_ETFS = {
