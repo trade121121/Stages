@@ -10,8 +10,8 @@ import numpy as np
 import yaml
 
 from . import config as C
-from . import constituents, data, market, scanner
-from .indicators import mansfield_rs
+from . import constituents, data, intermarket, market, scanner
+from .indicators import mansfield_rs, volume_ratio
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
@@ -46,7 +46,7 @@ def run() -> None:
                   if wl.get("theme_benchmark")}
     all_syms = (list(uni["ticker"]) + wl_tickers + list(C.SECTOR_ETFS)
                 + list(bench_syms) + list(theme_syms)
-                + list(C.WORLD_INDICES) + [C.PD_PROXY])
+                + list(C.WORLD_INDICES) + [C.PD_PROXY] + list(C.INTERMARKET))
     all_syms = list(dict.fromkeys(all_syms))
 
     # ------------------------------------------------ data ---------------
@@ -70,6 +70,20 @@ def run() -> None:
     # crude ticker->sector context via universe tag (SPX/NDX -> XLK etc. is
     # not knowable without GICS mapping; we attach the *theme* ETF where a
     # watchlist defines one, otherwise leave None)
+    # ------------------------------------------------ large-cap set -----
+    # top-N by median weekly dollar volume, separately for US and Europe
+    def _dv(t):
+        wk = weekly[t]
+        return float((wk["close"] * wk["volume"]).iloc[-52:].median())
+    us_t = [t for t, u in zip(uni["ticker"], uni["universe"])
+            if u in ("SPX", "NDX") and t in weekly]
+    eu_t = [t for t, u in zip(uni["ticker"], uni["universe"])
+            if u == "SXXP" and t in weekly]
+    large = set(sorted(us_t, key=_dv, reverse=True)[:C.LARGE_TOP_US]
+                + sorted(eu_t, key=_dv, reverse=True)[:C.LARGE_TOP_EU])
+    names = dict(zip(uni["ticker"], uni["name"]))
+    log.info("large-cap set: %d Ticker", len(large))
+
     # ------------------------------------------------ main scan ----------
     longs, shorts = [], []
     for _, row in uni.iterrows():
@@ -82,7 +96,87 @@ def run() -> None:
         sig = scanner.evaluate(t, str(row["name"]), row["universe"],
                                weekly[t], bench)
         if sig:
+            if sig.side == "short" and C.SHORT_LARGE_ONLY and t not in large:
+                continue                        # illiquid to short: skip
             (longs if sig.side == "long" else shorts).append(sig)
+
+    # ------------------------------------------------ volume surge -------
+    vol_rows = []
+    for t in large:
+        wk = weekly[t]
+        if len(wk) < 60:
+            continue
+        vr = volume_ratio(wk["volume"])
+        if not np.isfinite(vr):
+            continue
+        close = wk["close"]
+        u = "SXXP" if t in eu_t else "SPX"
+        bench = benches.get(local_bench_symbol(t, u))
+        if bench is None:
+            continue
+        sma = close.rolling(C.MA_WEEKS).mean()
+        m52 = mansfield_rs(close, bench)
+        m13 = mansfield_rs(close, bench, weeks=C.MRS_SHORT_WEEKS)
+        chg = float(close.iloc[-1] / close.iloc[-2] - 1) * 100 if len(close) > 1 else 0.0
+        vol_rows.append({
+            "ticker": t, "name": str(names.get(t, t)), "universe": u,
+            "vol_ratio": round(float(vr), 2),
+            "chg_w": round(chg, 1),
+            "close": round(float(close.iloc[-1]), 2),
+            "vs_ma": round(float(close.iloc[-1] / sma.iloc[-1] - 1) * 100, 1)
+            if np.isfinite(sma.iloc[-1]) else None,
+            "mrs": round(float(m52.iloc[-1]), 1) if np.isfinite(m52.iloc[-1]) else None,
+            "mrs13": round(float(m13.iloc[-1]), 1) if np.isfinite(m13.iloc[-1]) else None,
+            "mrs_chg_4w": round(float(m52.iloc[-1] - m52.iloc[-5]), 1)
+            if len(m52.dropna()) >= 5 else None,
+            "spark_close": [round(float(v), 4) for v in close.iloc[-52:]],
+            "spark_sma": [round(float(v), 4) if np.isfinite(v) else None
+                          for v in sma.iloc[-52:]],
+            "spark_mrs": [round(float(v), 3) if np.isfinite(v) else None
+                          for v in m52.iloc[-52:]],
+            "side": "long" if chg >= 0 else "short",
+        })
+    vol_rows.sort(key=lambda r: -r["vol_ratio"])
+    vol_rows = vol_rows[:C.VOLUME_TAB_N]
+
+    # ------------------------------------------------ RS accelerators ----
+    # who is starting to outperform: biggest MRS improvement over N weeks,
+    # coming from weakness (the early footprint, before Stage 2 is obvious)
+    acc_rows = []
+    for t in large:
+        wk = weekly[t]
+        u = "SXXP" if t in eu_t else "SPX"
+        bench = benches.get(local_bench_symbol(t, u))
+        if bench is None or len(wk) < 80:
+            continue
+        close = wk["close"]
+        m52 = mansfield_rs(close, bench).dropna()
+        if len(m52) <= C.RS_ACCEL_WEEKS + 1:
+            continue
+        now, then = float(m52.iloc[-1]), float(m52.iloc[-1 - C.RS_ACCEL_WEEKS])
+        if then > 0 or now <= then:
+            continue                            # must come from weakness, improving
+        m13 = mansfield_rs(close, bench, weeks=C.MRS_SHORT_WEEKS)
+        sma = close.rolling(C.MA_WEEKS).mean()
+        acc_rows.append({
+            "ticker": t, "name": str(names.get(t, t)), "universe": u,
+            "mrs": round(now, 1), "mrs_then": round(then, 1),
+            "delta": round(now - then, 1),
+            "mrs13": round(float(m13.iloc[-1]), 1) if np.isfinite(m13.iloc[-1]) else None,
+            "lead": bool(np.isfinite(m13.iloc[-1]) and m13.iloc[-1] > 0 and now <= 0),
+            "close": round(float(close.iloc[-1]), 2),
+            "vs_ma": round(float(close.iloc[-1] / sma.iloc[-1] - 1) * 100, 1)
+            if np.isfinite(sma.iloc[-1]) else None,
+            "spark_close": [round(float(v), 4) for v in close.iloc[-52:]],
+            "spark_sma": [round(float(v), 4) if np.isfinite(v) else None
+                          for v in sma.iloc[-52:]],
+            "spark_mrs": [round(float(v), 3) if np.isfinite(v) else None
+                          for v in mansfield_rs(close, bench).iloc[-52:]],
+            "side": "long",
+        })
+    acc_rows.sort(key=lambda r: -r["delta"])
+    acc_rows = acc_rows[:C.RS_ACCEL_N]
+    log.info("volume rows %d · RS accelerators %d", len(vol_rows), len(acc_rows))
 
     # ---- mark what is NEW versus previous runs -------------------------
     hist_path = os.path.join(root, C.OUTPUT_DIR, "signals_history.json")
@@ -163,12 +257,27 @@ def run() -> None:
         macro = None
         issues.append(f"Marktlage-Modul fehlgeschlagen: {exc!r}")
 
+    # ------------------------------------------------ intermarket --------
+    try:
+        inter = intermarket.compute(weekly)
+        log.info("intermarket: %d Warnungen, %d Beobachtungen",
+                 inter["n_warn"], inter["n_watch"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("intermarket failed: %r", exc)
+        inter = None
+        issues.append(f"Intermarket-Modul fehlgeschlagen: {exc!r}")
+
     # ------------------------------------------------ render -------------
     from . import dashboard
-    stats = {"tickers": len(uni), "failed": len(failed)}
+    bench_wk = weekly.get(C.BENCH_US)
+    week_end = (bench_wk.index[-1].strftime("%d.%m.%Y")
+                if bench_wk is not None and len(bench_wk) else "?")
+    stats = {"tickers": len(uni), "failed": len(failed), "week_end": week_end}
+    log.info("ausgewertete Woche endet am %s", week_end)
     issues += [f"no data: {t}" for t in failed[:60]]
     html = dashboard.render(longs, shorts, sectors, wl_rows, issues, stats,
-                            macro)
+                            macro, vol_rows=vol_rows, acc_rows=acc_rows,
+                            inter=inter)
     out = os.path.join(root, C.OUTPUT_DIR, "index.html")
     with open(out, "w", encoding="utf-8") as fh:
         fh.write(html)
