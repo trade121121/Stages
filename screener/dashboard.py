@@ -313,8 +313,8 @@ const secCols=[
   {h:"MRS 13",f:r=>r.mrs13==null?"–":`<span class="${cls(r.mrs13)}">${fmt(r.mrs13,1)}</span>`,k:r=>r.mrs13??-99},
   {h:"13W führt",f:r=>r.lead==="aufwärts"?`<span class="lead-up">▲ dreht auf</span>`:
      r.lead==="abwärts"?`<span class="lead-dn">▼ dreht ab</span>`:"–",k:r=>r.lead||""},
-  {h:"Δ 2W",f:r=>r.mrs_chg_2w==null?"–":`<span class="${cls(r.mrs_chg_2w)}">${fmt(r.mrs_chg_2w,1)}</span>`,k:r=>r.mrs_chg_2w??-99},
   {h:"Δ 4W",f:r=>`<span class="${cls(r.mrs_chg_4w)}">${fmt(r.mrs_chg_4w,1)}</span>`,k:r=>r.mrs_chg_4w},
+  {h:"Δ 2W",f:r=>r.mrs_chg_2w==null?"–":`<span class="${cls(r.mrs_chg_2w)}">${fmt(r.mrs_chg_2w,1)}</span>`,k:r=>r.mrs_chg_2w??-99},
   {h:"Tempo",f:r=>r.accel==="up"?`<span class="lead-up" title="2W schneller als 4W-Tempo">⇈</span>`:
      r.accel==="down"?`<span class="lead-dn" title="2W langsamer als 4W-Tempo, Trend ermüdet">⇊</span>`:"→",k:r=>r.accel==="up"?2:r.accel==="down"?0:1},
   {h:"MRS 52W",f:r=>spark(r.spark_mrs,"var(--mrs)",170,30),k:r=>0},
