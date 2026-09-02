@@ -19,8 +19,15 @@ def to_weekly(df: pd.DataFrame) -> pd.DataFrame:
         "low": df["low"].resample("W-FRI").min(),
         "close": df["close"].resample("W-FRI").last(),
         "volume": df["volume"].resample("W-FRI").sum(),
-    })
-    return out.dropna(subset=["close"])
+    }).dropna(subset=["close"])
+    # Drop the still-running week: a mid-week run would otherwise compare two
+    # days of volume against ten full weeks and treat an intraweek price as a
+    # weekly close.
+    if len(out):
+        today = pd.Timestamp.now("UTC").tz_localize(None).normalize()
+        if out.index[-1].normalize() > today:
+            out = out.iloc[:-1]
+    return out
 
 
 def mansfield_rs(close: pd.Series, bench_close: pd.Series,
@@ -183,3 +190,26 @@ def zone_width(atr: float, mult: float, lo: float, hi: float) -> float:
     if not np.isfinite(atr):
         return lo
     return float(min(max(atr * mult, lo), hi))
+
+
+def leg_retrace(close: pd.Series, high_window: int = 13,
+                leg_window: int = 26) -> tuple[float, float, float]:
+    """How much of the LAST UP-LEG has the current pullback retraced?
+
+    Returns (retrace, leg_low, leg_high). The leg is measured from the lowest
+    close in the `leg_window` weeks before the recent `high_window`-week high
+    up to that high. 0.0 = still at the high, 1.0 = leg fully given back.
+    """
+    if len(close) < high_window + leg_window + 1:
+        return float("nan"), float("nan"), float("nan")
+    recent = close.iloc[-high_window:]
+    i_hi = int(np.argmax(recent.values))
+    hi = float(recent.iloc[i_hi])
+    hi_pos = len(close) - high_window + i_hi
+    before = close.iloc[max(0, hi_pos - leg_window):hi_pos]
+    if before.empty:
+        return float("nan"), float("nan"), hi
+    lo = float(before.min())
+    if hi <= lo:
+        return float("nan"), lo, hi
+    return float((hi - float(close.iloc[-1])) / (hi - lo)), lo, hi
