@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 def render(long_signals, short_signals, sectors_df, watchlist_rows,
            issues: list[str], stats: dict, macro: dict | None = None,
            vol_rows: list | None = None, acc_rows: list | None = None,
-           inter: dict | None = None) -> str:
+           inter: dict | None = None, val: dict | None = None) -> str:
     payload = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "stats": stats,
@@ -26,6 +26,7 @@ def render(long_signals, short_signals, sectors_df, watchlist_rows,
         "volume": vol_rows or [],
         "accel": acc_rows or [],
         "inter": inter,
+        "value": val,
         "topn": _TOPN,
     }
     return _TEMPLATE.replace("__DATA__",
@@ -144,6 +145,7 @@ tr.reviewed td{opacity:.5}
 .lead-up{color:var(--long);font-weight:600} .lead-dn{color:var(--short);font-weight:600}
 @media(max-width:720px){main,header,nav{padding-left:12px;padding-right:12px}
   td,th{padding:6px 6px;font-size:12px}}
+.st1{color:var(--muted)}.st2{color:var(--long);font-weight:600}.st3{color:var(--flag)}.st4{color:var(--short)}
 </style>
 </head>
 <body>
@@ -455,6 +457,30 @@ const LPB=D.long.filter(r=>r.signal_type==="pullback");
 const LBL=D.long.filter(r=>r.signal_type==="base_low");
 const nNew=a=>a.filter(r=>r.is_new).length;
 const lbl=(t,a)=>`${t} (${a.length}${nNew(a)?" · "+nNew(a)+" neu":""})`;
+const SIG_LBL={breakout:"BREAKOUT",pre_breakout:"PRE-BO",pullback:"PULLBACK",base_low:"BASIS-TIEF",breakdown:"BREAKDOWN",rally:"RALLY"};
+const valCols=[
+  {h:"#",f:r=>r.pos,k:r=>-r.pos},
+  {h:"Ticker",f:r=>`<span class="tick">${r.ticker}</span>`+(r.signal?`<span class="badge fresh">${SIG_LBL[r.signal]||r.signal}</span>`:""),k:r=>r.ticker},
+  {h:"Name",f:r=>r.name.slice(0,24)+`<div style="color:var(--muted);font-size:11px">${r.sector}</div>`,k:r=>r.name},
+  {h:"Univ.",f:r=>r.universe,k:r=>r.universe},
+  {h:"EBIT/EV",f:r=>`<b>${fmt(r.ey,1)}%</b> <span style="color:var(--muted)">#${r.rank_ey}</span>`,k:r=>r.ey},
+  {h:"ROC",f:r=>`<b>${r.roc>=999?"&gt;999":fmt(r.roc,0)}%</b> <span style="color:var(--muted)">#${r.rank_roc}</span>`,k:r=>r.roc},
+  {h:"Stage",f:r=>`<span class="st${r.stage}">${r.stage_name}</span>`,k:r=>r.stage},
+  {h:"vs 30W",f:r=>r.vs_ma==null?"–":`<span class="${cls(r.vs_ma)}">${fmt(r.vs_ma,1)}%</span>`,k:r=>r.vs_ma??-99},
+  {h:"26W-Range",f:r=>r.range_pos==null?"–":r.range_pos+"%",k:r=>r.range_pos??-1},
+  {h:"MRS 52",f:r=>r.mrs==null?"–":`<span class="${cls(r.mrs)}">${fmt(r.mrs,1)}</span>`,k:r=>r.mrs??-99},
+  {h:"MRS 13",f:r=>r.mrs13==null?"–":`<span class="${cls(r.mrs13)}">${fmt(r.mrs13,1)}</span>`,k:r=>r.mrs13??-99},
+  {h:"MRS Δ4W",f:r=>r.mrs_chg_4w==null?"–":`<span class="${cls(r.mrs_chg_4w)}">${fmt(r.mrs_chg_4w,1)}</span>`,k:r=>r.mrs_chg_4w??-99},
+  {h:"52W",f:r=>spark(r.spark_close,"var(--ink)"),k:r=>0},
+];
+function valuePanel(){
+  const V=D.value;
+  if(!V)return `<div class="empty">Value-Modul lieferte keine Daten — siehe Hinweise unten.</div>`;
+  const part=V.coverage<V.universe-5;
+  return `<p class="note"><b>Greenblatt Magic Formula</b>: Rang nach <b>EBIT / Enterprise Value</b> (billig) plus Rang nach <b>EBIT / (Net Working Capital + Sachanlagen)</b> (gutes Geschäft) — beste Summe oben. EV wird jede Woche aus aktuellem Kurs neu berechnet. Ohne Finanzwerte, Versorger, Immobilien. <b>Lesart:</b> Die Formel hat kein Timing. Interessant sind Stage 1 mit MRS-Δ positiv oder ein Signal-Badge — Stage 4 ist meist Value-Trap.</p>
+  <p class="note">Gerankt: ${V.ranked} · Fundamentaldaten für ${V.coverage}/${V.universe} Titel (${V.excluded} ausgeschlossen)${part?` · <b>Cache baut sich noch auf</b> — Ranking erst nach vollständiger Abdeckung voll aussagekräftig.`:""}</p>`+
+  table(V.rows,valCols,r=>mansfieldPanel(r),"value");
+}
 const TABS=[
  {id:"macro",label:`MARKTLAGE${D.macro?" · "+(D.macro.score>0?"+":"")+Math.round(D.macro.score):""}`,
   render:()=>macroPanel()},
@@ -475,6 +501,8 @@ const TABS=[
    table(D.volume,volCols,r=>mansfieldPanel(r))+
    `<p class="note" style="margin-top:26px"><b>RS-Beschleuniger</b> — Großwerte mit der stärksten MRS-Verbesserung über 8 Wochen, <i>aus der Schwäche kommend</i> (MRS vor 8W noch negativ). Das ist der Fußabdruck, bevor ein Trend im 52W-Maß sichtbar wird. Badge „13W &gt; 0": die schnelle RS ist schon positiv, die langsame noch nicht.</p>`+
    table(D.accel,accCols,r=>mansfieldPanel(r))},
+ {id:"value",label:`VALUE${D.value?" · "+D.value.rows.length:""}`,
+  render:()=>valuePanel()},
  {id:"inter",label:`INTERMARKET${D.inter?" · "+D.inter.n_warn+"⚠":""}`,
   render:()=>interPanel()},
  {id:"sectors",label:"SEKTOR-ROTATION",
@@ -526,9 +554,9 @@ function show(id){
   });
   m.querySelectorAll("th").forEach(th=>th.addEventListener("click",()=>{
     const tabRows={stage12:L12,stage2:LPB,baselow:LBL,short:D.short,sectors:D.sectors,watch:D.watchlists,
-                   volume:D.volume,inter:(D.inter||{}).rows}[id];
+                   volume:D.volume,inter:(D.inter||{}).rows,value:(D.value||{}).rows}[id];
     const colsets={stage12:sigCols,stage2:sigCols,baselow:sigCols,short:sigCols,sectors:secCols,watch:wlCols,
-                   volume:volCols,inter:imCols};
+                   volume:volCols,inter:imCols,value:valCols};
     if(!tabRows||!colsets[id])return;
     const i=+th.dataset.i, col=colsets[id][i];
     if(!col||!col.k)return;

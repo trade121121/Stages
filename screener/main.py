@@ -10,7 +10,7 @@ import numpy as np
 import yaml
 
 from . import config as C
-from . import constituents, data, intermarket, market, scanner
+from . import constituents, data, intermarket, market, scanner, value
 from .indicators import mansfield_rs, volume_ratio
 
 logging.basicConfig(level=logging.INFO,
@@ -267,6 +267,61 @@ def run() -> None:
         inter = None
         issues.append(f"Intermarket-Modul fehlgeschlagen: {exc!r}")
 
+    # ------------------------------------------------ value (Greenblatt) -
+    val = None
+    try:
+        univ_of = {}
+        for t, u in zip(uni["ticker"], uni["universe"]):
+            if t in weekly:
+                univ_of.setdefault(t, u)
+        cache = value.refresh_cache(sorted(univ_of),
+                                    os.path.join(root, C.OUTPUT_DIR, C.VALUE_CACHE))
+        fx_wk, _ = data.download_weekly(sorted(value.fx_pairs_needed(cache)))
+        fx = {k: float(v["close"].iloc[-1]) for k, v in fx_wk.items() if len(v)}
+        ranked = value.compute(cache, weekly, fx)
+        sig_of = {s.ticker: s.signal_type for s in longs}
+        sig_of.update({s.ticker: s.signal_type for s in shorts})
+        vrows = []
+        for r in ranked[:C.VALUE_TOP_N]:
+            t = r["ticker"]
+            close = weekly[t]["close"]
+            bench = benches.get(local_bench_symbol(t, univ_of[t]))
+            sma = close.rolling(C.MA_WEEKS).mean()
+            m52 = mansfield_rs(close, bench) if bench is not None else None
+            m13 = mansfield_rs(close, bench, weeks=C.MRS_SHORT_WEEKS) if bench is not None else None
+            fin = lambda x: round(float(x), 1) if x is not None and np.isfinite(x) else None
+            lo, hi = float(close.iloc[-26:].min()), float(close.iloc[-26:].max())
+            st = market.stage_of(close, sma)
+            vrows.append({
+                "pos": int(r["pos"]), "ticker": t, "name": str(names.get(t, t)),
+                "universe": univ_of[t], "sector": r["sector"],
+                "ey": round(r["ey"], 1), "roc": round(min(r["roc"], 999.0), 1),
+                "rank_ey": int(r["rank_ey"]), "rank_roc": int(r["rank_roc"]),
+                "basis": r["ebit_basis"], "fetched": r["fetched"],
+                "stage": st, "stage_name": market.STAGE_NAME[st],
+                "vs_ma": fin((close.iloc[-1] / sma.iloc[-1] - 1) * 100),
+                "range_pos": round((float(close.iloc[-1]) - lo) / (hi - lo) * 100)
+                if hi > lo else None,
+                "mrs": fin(m52.iloc[-1]) if m52 is not None else None,
+                "mrs13": fin(m13.iloc[-1]) if m13 is not None else None,
+                "mrs_chg_4w": fin(m52.iloc[-1] - m52.iloc[-5]) if m52 is not None else None,
+                "signal": sig_of.get(t),
+                "spark_close": [round(float(v), 4) for v in close.iloc[-52:]],
+                "spark_sma": [round(float(v), 4) if np.isfinite(v) else None
+                              for v in sma.iloc[-52:]],
+                "spark_mrs": [round(float(v), 3) if np.isfinite(v) else None
+                              for v in m52.iloc[-52:]] if m52 is not None else [],
+                "side": "long",
+            })
+        n_ok = sum(1 for k in univ_of if k in cache)
+        n_ex = sum(1 for k in univ_of if cache.get(k, {}).get("excluded"))
+        val = {"rows": vrows, "coverage": n_ok, "universe": len(univ_of),
+               "excluded": n_ex, "ranked": len(ranked)}
+        log.info("value: %d gerankt, Abdeckung %d/%d", len(ranked), n_ok, len(univ_of))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("value module failed: %r", exc)
+        issues.append(f"Value-Modul fehlgeschlagen: {exc!r}")
+
     # ------------------------------------------------ render -------------
     from . import dashboard
     bench_wk = weekly.get(C.BENCH_US)
@@ -277,7 +332,7 @@ def run() -> None:
     issues += [f"no data: {t}" for t in failed[:60]]
     html = dashboard.render(longs, shorts, sectors, wl_rows, issues, stats,
                             macro, vol_rows=vol_rows, acc_rows=acc_rows,
-                            inter=inter)
+                            inter=inter, val=val)
     out = os.path.join(root, C.OUTPUT_DIR, "index.html")
     with open(out, "w", encoding="utf-8") as fh:
         fh.write(html)

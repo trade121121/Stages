@@ -100,19 +100,48 @@ def compute(weekly: dict[str, pd.DataFrame]) -> dict:
     g = ser.get
     spx, ndx, rut, djt, dji = g("^GSPC"), g("^IXIC"), g("^RUT"), g("^DJT"), g("^DJI")
 
-    # ---- 1) Leadership: does breadth confirm the index? ---------------------
-    if spx is not None:
+    # ---- 1) Leadership: do small caps confirm the S&P? ---------------------
+    if spx is not None and rut is not None:
         spx_hi = _weeks_since_high(spx) <= 4
+        p_hi = _weeks_since_high(rut) <= 8
+        active = spx_hi and not p_hi
+        add("S&P-Hoch ohne Russell 2000", active, "warn" if active else "ok",
+            f"S&P-Hoch vor {_weeks_since_high(spx)}W · Russell-Hoch vor {_weeks_since_high(rut)}W",
+            "schmale Führung — Small Caps bestätigen nicht" if active else "Russell 2000 bestätigt")
+
+    # ---- 1a) Dow-Theorie: Industrials und Transports müssen sich bestätigen
+    # Klassisch Dow Industrials vs. Dow Transports (nicht S&P): wer produziert,
+    # muss auch verschiffen. Nicht-Bestätigung in beide Richtungen zählt.
+    if dji is not None and djt is not None:
+        a_i, a_t = _weeks_since_high(dji), _weeks_since_high(djt)
+        if a_i <= 4 and a_t > 8:
+            active, why = True, "Industrials auf neuem Hoch, Transports bestätigen nicht"
+        elif a_t <= 4 and a_i > 8:
+            active, why = True, "Transports auf neuem Hoch, Industrials bestätigen nicht"
+        else:
+            active = False
+            why = ("beide bestätigen einander" if a_i <= 4 and a_t <= 4
+                   else "keiner am Hoch — Korrekturphase, keine Divergenz")
+        add("Dow-Theorie: Industrials vs. Transports", active,
+            "warn" if active and max(a_i, a_t) > 13 else "watch" if active else "ok",
+            f"Industrials-Hoch vor {a_i}W · Transports-Hoch vor {a_t}W", why)
+
+    # ---- 1c) Dow Utilities als Vorlaufindikator ----------------------------
+    # Zinssensitiv, toppen historisch vor dem Gesamtmarkt: Utilities im Abwärts-
+    # trend während der S&P nahe Hoch notiert = steigende Zinslast wird
+    # eingepreist, bevor der breite Markt reagiert.
+    dju = g("^DJU")
+    if dju is not None and spx is not None:
         near = bool(spx.iloc[-1] >= spx.iloc[-52:].max() * 0.97)
-        for proxy, nm, txt in ((rut, "Russell 2000", "schmale Führung — Small Caps bestätigen nicht"),
-                               (djt, "Dow Transports", "Dow-Theorie: Transports bestätigen nicht")):
-            if proxy is None:
-                continue
-            p_hi = _weeks_since_high(proxy) <= 8
-            active = spx_hi and not p_hi
-            add(f"S&P-Hoch ohne {nm}", active, "warn" if active else "ok",
-                f"S&P-Hoch vor {_weeks_since_high(spx)}W · {nm}-Hoch vor {_weeks_since_high(proxy)}W",
-                txt if active else f"{nm} bestätigt")
+        st_u = stage_of(dju)
+        a_u = _weeks_since_high(dju)
+        weak = st_u in (3, 4) and a_u > 13
+        active = near and weak
+        add("Utilities führen nach unten", active, "watch" if active else "ok",
+            f"Utilities {STAGE_NAME[st_u]} · Hoch vor {a_u}W · 13W {_chg(dju, 13):+.1f}%",
+            "S&P nahe Hoch, Utilities rollen ab — Zinsdruck kommt früh an"
+            if active else ("Utilities schwach, aber S&P nicht am Hoch" if weak
+                            else "Utilities intakt"))
     # ---- 1b) The three majors must confirm each other (weekly closes) -----
     trio = {"S&P": spx, "Nasdaq": ndx, "Dow": dji}
     ages = {k: _weeks_since_high(v) for k, v in trio.items() if v is not None}

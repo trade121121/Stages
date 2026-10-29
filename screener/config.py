@@ -26,6 +26,7 @@ INTERMARKET = {
     "^IXIC":    ("Nasdaq Composite",       "Aktien"),
     "^DJI":     ("Dow Industrials",        "Aktien"),
     "^DJT":     ("Dow Transports",         "Aktien"),
+    "^DJU":     ("Dow Utilities",          "Aktien"),
     "^RUT":     ("Russell 2000",           "Aktien"),
     "^TNX":     ("US 10J Rendite",         "Zinsen"),
     "^TYX":     ("US 30J Rendite",         "Zinsen"),
@@ -193,3 +194,11 @@ ISHARES_STOXX600_CSV = (
 
 OUTPUT_DIR = "docs"
 SIGNAL_HISTORY_RUNS = 12          # how many past runs to keep for "new" flags
+
+# ---- Value screen (Greenblatt Magic Formula) ---------------------------
+VALUE_TTL_DAYS = 30        # fundamentals older than this get refreshed
+VALUE_REFRESH_MAX = 400    # max tickers fetched per run (rate limits)
+VALUE_TIME_BUDGET = 900    # seconds; rest is picked up next week
+VALUE_WORKERS = 6
+VALUE_TOP_N = 50           # rows stored; dashboard shows DISPLAY_TOP_N
+VALUE_CACHE = "fundamentals.json"   # inside OUTPUT_DIR, committed
