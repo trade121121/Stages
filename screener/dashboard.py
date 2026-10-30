@@ -459,7 +459,8 @@ const nNew=a=>a.filter(r=>r.is_new).length;
 const lbl=(t,a)=>`${t} (${a.length}${nNew(a)?" · "+nNew(a)+" neu":""})`;
 const SIG_LBL={breakout:"BREAKOUT",pre_breakout:"PRE-BO",pullback:"PULLBACK",base_low:"BASIS-TIEF",breakdown:"BREAKDOWN",rally:"RALLY"};
 const valCols=[
-  {h:"#",f:r=>r.pos,k:r=>-r.pos},
+  {h:"#",f:r=>`<b>${r.pos}</b>`,k:r=>-r.pos},
+  {h:"Punkte",f:r=>`${r.score} <span style="color:var(--muted);font-size:11px">= ${r.rank_ey}+${r.rank_roc}</span>`,k:r=>-r.score},
   {h:"Ticker",f:r=>`<span class="tick">${r.ticker}</span>`+(r.signal?`<span class="badge fresh">${SIG_LBL[r.signal]||r.signal}</span>`:""),k:r=>r.ticker},
   {h:"Name",f:r=>r.name.slice(0,24)+`<div style="color:var(--muted);font-size:11px">${r.sector}</div>`,k:r=>r.name},
   {h:"Univ.",f:r=>r.universe,k:r=>r.universe},
@@ -477,9 +478,15 @@ function valuePanel(){
   const V=D.value;
   if(!V)return `<div class="empty">Value-Modul lieferte keine Daten — siehe Hinweise unten.</div>`;
   const part=V.coverage<V.universe-5;
-  return `<p class="note"><b>Greenblatt Magic Formula</b>: Rang nach <b>EBIT / Enterprise Value</b> (billig) plus Rang nach <b>EBIT / (Net Working Capital + Sachanlagen)</b> (gutes Geschäft) — beste Summe oben. EV wird jede Woche aus aktuellem Kurs neu berechnet. Ohne Finanzwerte, Versorger, Immobilien. <b>Lesart:</b> Die Formel hat kein Timing. Interessant sind Stage 1 mit MRS-Δ positiv oder ein Signal-Badge — Stage 4 ist meist Value-Trap.</p>
+  return `<p class="note"><b>Greenblatt Magic Formula</b>: Jeder Titel bekommt einen Rang nach <b>EBIT / Enterprise Value</b> (billig) und einen nach <b>EBIT / (Net Working Capital + Sachanlagen)</b> (gutes Geschäft). <b>Punkte = Rang 1 + Rang 2</b>, niedrigste Punktzahl = Platz 1. EV wird jede Woche aus aktuellem Kurs neu berechnet. Ohne Finanzwerte, Versorger, Immobilien. <b>Lesart:</b> Die Formel hat kein Timing. Interessant sind Stage 1 mit MRS-Δ positiv oder ein Signal-Badge — Stage 4 ist meist Value-Trap.</p>
   <p class="note">Gerankt: ${V.ranked} · Fundamentaldaten für ${V.coverage}/${V.universe} Titel (${V.excluded} ausgeschlossen)${part?` · <b>Cache baut sich noch auf</b> — Ranking erst nach vollständiger Abdeckung voll aussagekräftig.`:""}</p>`+
-  table(V.rows,valCols,r=>mansfieldPanel(r),"value");
+  `<button class="morebtn" id="valreset" style="margin:0 0 10px">↺ Greenblatt-Ranking wiederherstellen</button>`+
+  table(V.rows,valCols,r=>mansfieldPanel(r),"value")+
+  ((V.dropped||[]).length?`<details style="margin-top:22px"><summary class="note" style="cursor:pointer"><b>Ausgefiltert vor dem Ranking (${V.dropped.length})</b> — unplausible Kennzahlen, damit sie die Ränge der anderen nicht verfälschen</summary>
+   <table><thead><tr><th>Ticker</th><th>Name</th><th>EBIT/EV</th><th>ROC</th><th>Grund</th></tr></thead><tbody>${
+   V.dropped.map(d=>`<tr><td><span class="tick">${d.ticker}</span></td><td>${d.name.slice(0,26)}</td>
+   <td>${d.ey==null?"–":fmt(d.ey,1)+"%"}</td><td>${d.roc==null?"–":fmt(d.roc,0)+"%"}</td><td>${d.reason}</td></tr>`).join("")
+   }</tbody></table></details>`:"");
 }
 const TABS=[
  {id:"macro",label:`MARKTLAGE${D.macro?" · "+(D.macro.score>0?"+":"")+Math.round(D.macro.score):""}`,
@@ -529,6 +536,9 @@ function show(id){
     const tr=el.closest("tr"); if(tr)tr.classList.toggle("reviewed", s==="skip");
     updateCounts(id);
   }));
+  const vr=m.querySelector("#valreset");
+  if(vr)vr.addEventListener("click",()=>{
+    D.value.rows.sort((a,b)=>a.pos-b.pos); delete sortState.value; show("value");});
   m.querySelectorAll("[data-more]").forEach(el=>el.addEventListener("click",()=>{
     showAll[el.dataset.more]=true; show(id);
   }));

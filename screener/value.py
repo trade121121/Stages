@@ -196,9 +196,22 @@ def fx_pairs_needed(cache: dict) -> set[str]:
 # --------------------------------------------------------------------------
 # ranking
 # --------------------------------------------------------------------------
-def compute(cache: dict, weekly: dict, fx: dict[str, float]) -> list[dict]:
-    """Return all eligible rows ranked by combined Greenblatt rank."""
-    rows = []
+def _plausibility(ey: float, roc: float, tk: str, industry: str) -> str | None:
+    """Reason to drop a row before ranking, or None. Filtered rows are removed
+    BEFORE the ranks are assigned, so they cannot push others down."""
+    if tk in C.VALUE_HOLDINGS or industry in ("Asset Management", "Shell Companies"):
+        return "Holding — EBIT enthält Beteiligungserträge, nicht operativ"
+    if ey > C.VALUE_MAX_EY:
+        return f"EBIT/EV > {C.VALUE_MAX_EY:.0f}% — Sondereffekt oder Datenfehler"
+    if roc > C.VALUE_MAX_ROC:
+        return f"ROC > {C.VALUE_MAX_ROC:.0f}% — Kapitalbasis nahe null, nicht interpretierbar"
+    return None
+
+
+def compute(cache: dict, weekly: dict, fx: dict[str, float]) -> tuple[list[dict], list[dict]]:
+    """Greenblatt: rank EBIT/EV and ROC separately (1 = best), add the two
+    ranks, lowest sum wins. Returns (ranked rows, filtered rows with reason)."""
+    rows, dropped = [], []
     for tk, r in cache.items():
         if r.get("excluded") or tk not in weekly:
             continue
@@ -216,18 +229,29 @@ def compute(cache: dict, weekly: dict, fx: dict[str, float]) -> list[dict]:
         mcap = price * scale * shares * rate    # in financial currency
         ev = mcap + (r.get("debt") or 0.0) - (r.get("cash") or 0.0)
         cap = max(nwc, 0.0) + nfa               # Greenblatt floors NWC at 0
-        if ev <= 0 or cap <= 0:
+        row = {"ticker": tk, "sector": r.get("sector") or "?",
+               "industry": r.get("industry") or "",
+               "ebit_basis": r.get("ebit_basis"), "fetched": r.get("fetched")}
+        if ev <= 0:
+            dropped.append({**row, "ey": None, "roc": None,
+                            "reason": "EV ≤ 0 — Cash größer als Börsenwert, Datenproblem"})
             continue
-        rows.append({"ticker": tk, "sector": r.get("sector") or "?",
-                     "industry": r.get("industry") or "",
-                     "ey": ebit / ev * 100, "roc": ebit / cap * 100,
-                     "ebit_basis": r.get("ebit_basis"), "fetched": r.get("fetched")})
+        if cap <= 0:
+            dropped.append({**row, "ey": ebit / ev * 100, "roc": None,
+                            "reason": "Kapitalbasis ≤ 0 — ROC nicht berechenbar"})
+            continue
+        row.update({"ey": ebit / ev * 100, "roc": ebit / cap * 100})
+        why = _plausibility(row["ey"], row["roc"], tk, row["industry"])
+        if why:
+            dropped.append({**row, "reason": why})
+            continue
+        rows.append(row)
     if not rows:
-        return []
+        return [], dropped
     df = pd.DataFrame(rows)
-    df["rank_ey"] = df["ey"].rank(ascending=False, method="min")
-    df["rank_roc"] = df["roc"].rank(ascending=False, method="min")
-    df["rank"] = df["rank_ey"] + df["rank_roc"]
-    df = df.sort_values(["rank", "rank_ey"]).reset_index(drop=True)
+    df["rank_ey"] = df["ey"].rank(ascending=False, method="min").astype(int)
+    df["rank_roc"] = df["roc"].rank(ascending=False, method="min").astype(int)
+    df["score"] = df["rank_ey"] + df["rank_roc"]
+    df = df.sort_values(["score", "rank_ey"]).reset_index(drop=True)
     df["pos"] = np.arange(1, len(df) + 1)
-    return df.to_dict(orient="records")
+    return df.to_dict(orient="records"), sorted(dropped, key=lambda d: d["ticker"])

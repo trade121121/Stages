@@ -278,7 +278,7 @@ def run() -> None:
                                     os.path.join(root, C.OUTPUT_DIR, C.VALUE_CACHE))
         fx_wk, _ = data.download_weekly(sorted(value.fx_pairs_needed(cache)))
         fx = {k: float(v["close"].iloc[-1]) for k, v in fx_wk.items() if len(v)}
-        ranked = value.compute(cache, weekly, fx)
+        ranked, dropped = value.compute(cache, weekly, fx)
         sig_of = {s.ticker: s.signal_type for s in longs}
         sig_of.update({s.ticker: s.signal_type for s in shorts})
         vrows = []
@@ -297,6 +297,7 @@ def run() -> None:
                 "universe": univ_of[t], "sector": r["sector"],
                 "ey": round(r["ey"], 1), "roc": round(min(r["roc"], 999.0), 1),
                 "rank_ey": int(r["rank_ey"]), "rank_roc": int(r["rank_roc"]),
+                "score": int(r["score"]),
                 "basis": r["ebit_basis"], "fetched": r["fetched"],
                 "stage": st, "stage_name": market.STAGE_NAME[st],
                 "vs_ma": fin((close.iloc[-1] / sma.iloc[-1] - 1) * 100),
@@ -316,7 +317,11 @@ def run() -> None:
         n_ok = sum(1 for k in univ_of if k in cache)
         n_ex = sum(1 for k in univ_of if cache.get(k, {}).get("excluded"))
         val = {"rows": vrows, "coverage": n_ok, "universe": len(univ_of),
-               "excluded": n_ex, "ranked": len(ranked)}
+               "excluded": n_ex, "ranked": len(ranked),
+               "dropped": [{"ticker": d["ticker"], "name": str(names.get(d["ticker"], d["ticker"])),
+                            "ey": round(d["ey"], 1) if d.get("ey") is not None else None,
+                            "roc": round(d["roc"], 0) if d.get("roc") is not None else None,
+                            "reason": d["reason"]} for d in dropped]}
         log.info("value: %d gerankt, Abdeckung %d/%d", len(ranked), n_ok, len(univ_of))
     except Exception as exc:  # noqa: BLE001
         log.warning("value module failed: %r", exc)

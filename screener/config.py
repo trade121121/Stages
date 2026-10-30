@@ -202,3 +202,10 @@ VALUE_TIME_BUDGET = 900    # seconds; rest is picked up next week
 VALUE_WORKERS = 6
 VALUE_TOP_N = 50           # rows stored; dashboard shows DISPLAY_TOP_N
 VALUE_CACHE = "fundamentals.json"   # inside OUTPUT_DIR, committed
+# plausibility filters — applied BEFORE ranking, filtered names listed separately
+VALUE_MAX_EY = 25.0        # EBIT/EV above this = one-off gain or bad data
+VALUE_MAX_ROC = 1000.0     # capital base ~0 -> ROC is noise, not quality
+VALUE_HOLDINGS = {         # investment holdings: EBIT = stake income
+    "PRX.AS", "INVE-B.ST", "INDU-C.ST", "KINV-B.ST", "LATO-B.ST", "EXO.AS",
+    "GBLB.BR", "SOF.BR", "HAL.AS", "AKER.OL", "WENDEL.PA", "EURA.PA",
+}
