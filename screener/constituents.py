@@ -213,21 +213,29 @@ def stoxx600() -> tuple[pd.DataFrame, list[str]]:
     """Returns (constituents, unresolved_report)."""
     unresolved: list[str] = []
     try:
-        r = requests.get(C.ISHARES_STOXX600_CSV, headers=HEADERS, timeout=60)
-        r.raise_for_status()
-        raw = r.content.decode("utf-8-sig", errors="replace")
-        lines = raw.splitlines()
-        # header row = first line whose first cell CONTAINS "ticker"
-        # (German file: "Emittententicker"; English file: "Ticker")
-        start = None
-        for i, ln in enumerate(lines):
-            first_cell = ln.split(",")[0].split(";")[0].strip().strip('"').lower()
-            if "ticker" in first_cell:
-                start = i
+        lines, start, errs = [], None, []
+        for url in C.ISHARES_STOXX600_CSVS:
+            try:
+                r = requests.get(url, headers=BROWSER_HEADERS, timeout=60)
+                r.raise_for_status()
+            except Exception as exc:  # noqa: BLE001
+                errs.append(f"{url[23:40]}…: {exc!r}"[:160])
+                continue
+            raw = r.content.decode("utf-8-sig", errors="replace")
+            lines = raw.splitlines()
+            # header row = first line whose first cell CONTAINS "ticker"
+            # (German file: "Emittententicker"; English file: "Ticker")
+            for i, ln in enumerate(lines):
+                first_cell = ln.split(",")[0].split(";")[0].strip().strip('"').lower()
+                if "ticker" in first_cell:
+                    start = i
+                    break
+            if start is not None:
+                log.info("STOXX600 holdings from %s", url[:70])
                 break
+            errs.append(f"{url[23:40]}…: HTML statt CSV ({lines[:1]!r})"[:160])
         if start is None:
-            raise RuntimeError(
-                f"no ticker header found; first lines: {lines[:3]!r}")
+            raise RuntimeError("alle iShares-Quellen fehlgeschlagen: " + " | ".join(errs))
         body = "\n".join(lines[start:])
         sep = ";" if lines[start].count(";") > lines[start].count(",") else ","
         df = pd.read_csv(io.StringIO(body), sep=sep)

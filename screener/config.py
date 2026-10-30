@@ -186,11 +186,19 @@ EXCHANGE_SUFFIX = {
     "Warsaw Stock Exchange": ".WA",
 }
 
-ISHARES_STOXX600_CSV = (
+# Tried in order. siteEntryPassthrough skips the investor-type gateway that
+# otherwise returns an HTML page instead of the CSV.
+ISHARES_STOXX600_CSVS = [
+    "https://www.ishares.com/ch/individual/en/products/251931/"
+    "ishares-stoxx-europe-600-ucits-etf-de-fund/1495092304805.ajax"
+    "?fileType=csv&fileName=EXSA_holdings&dataType=fund&siteEntryPassthrough=true",
     "https://www.ishares.com/de/privatanleger/de/produkte/251931/"
     "ishares-stoxx-europe-600-ucits-etf-de-fund/1478358465952.ajax"
-    "?fileType=csv&fileName=EXSA_holdings&dataType=fund"
-)
+    "?fileType=csv&fileName=EXSA_holdings&dataType=fund&siteEntryPassthrough=true",
+    "https://www.ishares.com/ch/individual/en/products/251931/"
+    "ishares-stoxx-europe-600-ucits-etf-de-fund/1495092304805.ajax"
+    "?fileType=csv&fileName=EXSA_holdings&dataType=fund",
+]
 
 OUTPUT_DIR = "docs"
 SIGNAL_HISTORY_RUNS = 12          # how many past runs to keep for "new" flags
